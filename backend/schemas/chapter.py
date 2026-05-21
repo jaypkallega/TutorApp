@@ -29,6 +29,9 @@ class ChapterOut(BaseModel):
     teaching_style: Optional[str]
     created_at: datetime
     concepts: List[ConceptOut] = []
+    # Enriched at query time — not a DB column
+    textbook_title: Optional[str] = None
+    textbook_subject: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
