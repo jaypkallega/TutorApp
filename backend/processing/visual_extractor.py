@@ -42,18 +42,92 @@ For a NUMBER LINE:
 For a BAR GRAPH:
 {{"has_visual": true, "type": "bar_graph", "title": "Graph title", "x_label": "Category", "y_label": "Value", "bars": [{{"label": "A", "value": 10}}, {{"label": "B", "value": 20}}]}}
 
-For a GEOMETRIC FIGURE (triangle, polygon, angle diagram):
-{{"has_visual": true, "type": "geometry", "shape": "triangle", "description": "Triangle ABC with AB=5cm, BC=7cm, angle B=60°", "measurements": [{{"label": "AB", "value": "5 cm"}}, {{"label": "angle B", "value": "60°"}}]}}
-
 For a PIE CHART:
 {{"has_visual": true, "type": "pie_chart", "title": "title", "slices": [{{"label": "A", "value": 30}}, {{"label": "B", "value": 70}}]}}
 
-For anything else you cannot reconstruct structurally:
+For a GEOMETRIC FIGURE — IMPORTANT: provide actual vertex coordinates where possible:
+
+Triangle ABC with AB=5cm, BC=7cm, angle B=60°:
+{{"has_visual": true, "type": "geometry", "shape": "triangle",
+  "description": "Triangle ABC with AB=5 cm, BC=7 cm, angle B=60°",
+  "vertices": {{"A": [0, 86], "B": [0, 0], "C": [100, 0]}},
+  "angles": {{"A": null, "B": "60°", "C": null}},
+  "circle_data": null,
+  "measurements": [{{"label": "AB", "value": "5 cm", "type": "side"}}, {{"label": "BC", "value": "7 cm", "type": "side"}}, {{"label": "∠B", "value": "60°", "type": "angle"}}]}}
+
+Right-angled triangle with legs 3cm, 4cm:
+{{"has_visual": true, "type": "geometry", "shape": "right_triangle",
+  "description": "Right-angled triangle with legs 3 cm and 4 cm",
+  "vertices": {{"A": [0, 75], "B": [0, 0], "C": [100, 0]}},
+  "angles": {{"A": null, "B": "90°", "C": null}},
+  "circle_data": null,
+  "measurements": [{{"label": "AB", "value": "3 cm", "type": "side"}}, {{"label": "BC", "value": "4 cm", "type": "side"}}]}}
+
+Rectangle 8cm × 5cm:
+{{"has_visual": true, "type": "geometry", "shape": "rectangle",
+  "description": "Rectangle 8 cm by 5 cm",
+  "vertices": {{"A": [0, 62], "B": [0, 0], "C": [100, 0], "D": [100, 62]}},
+  "angles": {{}},
+  "circle_data": null,
+  "measurements": [{{"label": "length", "value": "8 cm", "type": "side"}}, {{"label": "width", "value": "5 cm", "type": "side"}}]}}
+
+Circle with radius 7cm:
+{{"has_visual": true, "type": "geometry", "shape": "circle",
+  "description": "Circle with radius 7 cm",
+  "vertices": null,
+  "angles": {{}},
+  "circle_data": {{"cx": 100, "cy": 100, "radius": 70, "radius_label": "7 cm", "diameter_label": null}},
+  "measurements": [{{"label": "radius", "value": "7 cm", "type": "radius"}}]}}
+
+Angle of 120°:
+{{"has_visual": true, "type": "geometry", "shape": "angle",
+  "description": "Angle of 120°",
+  "vertices": {{"O": [50, 80], "A": [0, 80], "B": [100, 20]}},
+  "angles": {{"O": "120°"}},
+  "circle_data": null,
+  "measurements": [{{"label": "∠AOB", "value": "120°", "type": "angle"}}]}}
+
+RULES for vertices:
+- Place coordinates inside a 0–200 (x) by 0–160 (y) bounding box
+- Right angles should be at [0,0] or a corner
+- Always include the "description" field as a plain-English fallback
+- If you cannot determine exact proportional coordinates, set "vertices": null
+  (the frontend will fall back to the text description)
+
+For anything else you cannot reconstruct:
 {{"has_visual": true, "type": "page_image", "description": "brief description of what the visual shows"}}
 
 Return ONLY valid JSON. No explanation.
 Exercise text: {exercise_text}
 """
+
+
+def _normalise_vertices(vertices: dict) -> dict:
+    """
+    Scale vertex coordinates so the shape fits in a 180x130 viewport
+    with 10px padding on each side (working area: 0-200 x, 0-160 y).
+    Returns the same dict structure with scaled coords, or original if already fine.
+    """
+    if not vertices:
+        return vertices
+    try:
+        all_x = [v[0] for v in vertices.values()]
+        all_y = [v[1] for v in vertices.values()]
+        min_x, max_x = min(all_x), max(all_x)
+        min_y, max_y = min(all_y), max(all_y)
+        span_x = max_x - min_x or 1
+        span_y = max_y - min_y or 1
+        # Target viewport: 20-180 x, 20-140 y  (160 wide, 120 tall)
+        scale = min(160 / span_x, 120 / span_y)
+        offset_x = 20 + (160 - span_x * scale) / 2 - min_x * scale
+        offset_y = 20 + (120 - span_y * scale) / 2 - min_y * scale
+        return {
+            k: [round(v[0] * scale + offset_x, 1), round(v[1] * scale + offset_y, 1)]
+            for k, v in vertices.items()
+        }
+    except Exception:
+        return vertices
+
 
 
 def extract_visual_for_exercise(
@@ -118,6 +192,9 @@ def extract_visual_for_exercise(
         if not result.get("has_visual", False):
             return {}
         result.pop("has_visual", None)
+        # Normalise geometry vertex coordinates to fit SVG viewport
+        if result.get("type") == "geometry" and result.get("vertices"):
+            result["vertices"] = _normalise_vertices(result["vertices"])
         return result
 
     except Exception as e:

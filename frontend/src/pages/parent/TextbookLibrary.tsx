@@ -4,7 +4,7 @@ import { useAuthStore } from '../../store/authStore'
 import Layout from '../../components/Layout'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import api from '../../api/client'
-import { Upload, BookOpen, CheckCircle2, Clock, AlertCircle, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { Upload, BookOpen, CheckCircle2, Clock, AlertCircle, ChevronDown, ChevronRight, Trash2, Pencil, Check } from 'lucide-react'
 
 interface Textbook {
   id: number
@@ -47,6 +47,10 @@ export default function TextbookLibrary() {
   const [uploadError, setUploadError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const editInputRef = useRef<HTMLInputElement>(null)
+  // Inline title edit state
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
 
   useEffect(() => {
     if (!isParent()) { navigate('/parent/login'); return }
@@ -125,6 +129,26 @@ export default function TextbookLibrary() {
     await api.delete(`/textbooks/${id}`)
     setTextbooks((prev) => prev.filter((t) => t.id !== id))
   }
+
+  const startEdit = (tb: Textbook, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingId(tb.id)
+    setEditingTitle(tb.title)
+    // Focus input on next render
+    setTimeout(() => editInputRef.current?.focus(), 0)
+  }
+
+  const saveTitle = async (id: number) => {
+    const trimmed = editingTitle.trim()
+    if (!trimmed) { setEditingId(null); return }
+    try {
+      await api.patch(`/textbooks/${id}`, { title: trimmed })
+      setTextbooks((prev) => prev.map((t) => t.id === id ? { ...t, title: trimmed } : t))
+    } catch { /* silently revert */ }
+    setEditingId(null)
+  }
+
+  const cancelEdit = () => setEditingId(null)
 
   if (loading) return <Layout title="Textbook Library"><LoadingSpinner /></Layout>
 
@@ -205,7 +229,38 @@ export default function TextbookLibrary() {
               <div className="flex items-center gap-3">
                 {STATUS_ICON[tb.status] || STATUS_ICON.pending}
                 <div>
-                  <div className="font-semibold text-gray-800">{tb.title}</div>
+                  {/* Inline title editing */}
+                  {editingId === tb.id ? (
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        ref={editInputRef}
+                        id={`title-edit-${tb.id}`}
+                        className="text-sm font-semibold text-gray-800 border-b-2 border-primary-400 bg-transparent outline-none px-0.5 min-w-0 w-48"
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveTitle(tb.id)
+                          if (e.key === 'Escape') cancelEdit()
+                        }}
+                        onBlur={() => saveTitle(tb.id)}
+                      />
+                      <button onClick={() => saveTitle(tb.id)}
+                        className="text-green-500 hover:text-green-600 p-0.5">
+                        <Check size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 group">
+                      <span className="font-semibold text-gray-800">{tb.title}</span>
+                      <button
+                        onClick={(e) => startEdit(tb, e)}
+                        title="Edit title"
+                        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-primary-500 transition-opacity p-0.5 rounded"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
+                  )}
                   <div className="text-sm text-gray-500">
                     Grade {tb.grade} · {tb.page_count ? `${tb.page_count} pages` : 'Processing...'}
                     {tb.analysis_log && <span className="ml-2 text-xs text-gray-400">{tb.analysis_log}</span>}

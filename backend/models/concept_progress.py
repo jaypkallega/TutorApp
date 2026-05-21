@@ -17,6 +17,8 @@ class ConceptProgress(Base):
     exercises_correct = Column(Integer, default=0)
     last_interaction = Column(DateTime, nullable=True)
     unlocked_for_test = Column(Boolean, default=False)  # true when introduced
+    recommended_difficulty = Column(String, default="easy")  # easy | medium | hard
+    difficulty_updated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 

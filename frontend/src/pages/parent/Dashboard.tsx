@@ -14,6 +14,7 @@ interface Assignment {
 interface QuestionResult {
   question_index: number; status: string; feedback: string | null
   correct_answer: string | null; ocr_text: string | null; question_prompt: string
+  hints_used?: number
 }
 
 interface SubmissionDetail {
@@ -202,6 +203,11 @@ export default function ParentDashboard() {
                                     <span className={`text-xs font-semibold shrink-0 ${STATUS_COLOR[qr.status] || 'text-gray-400'}`}>
                                       {STATUS_LABEL[qr.status] || qr.status}
                                     </span>
+                                    {(qr.hints_used ?? 0) > 0 && (
+                                      <span className="text-xs text-amber-500 shrink-0" title={`${qr.hints_used} hint(s) used`}>
+                                        💡 {qr.hints_used}
+                                      </span>
+                                    )}
                                   </div>
                                 ))}
                                 {sub.evaluation.overall_feedback && (

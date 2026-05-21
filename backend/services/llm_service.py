@@ -401,3 +401,65 @@ def generate_structured_answer(
         import logging
         logging.getLogger(__name__).warning(f"Structured answer generation failed: {e}")
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Hint generation (used during SolveWorkspace — Socratic, never gives answer)
+# ---------------------------------------------------------------------------
+
+HINT_PROMPT = """\
+You are a patient, encouraging Grade 8 tutor helping a student who is stuck.
+The student has asked for hint #{hint_number} of 3 for this question.
+
+QUESTION: {question}
+EXPECTED ANSWER (do NOT reveal this): {expected_answer}
+STUDENT'S CURRENT ATTEMPT (may be empty): {current_answer}
+
+STRICT RULES — never break these:
+1. NEVER give the answer, any part of the answer, or a formula that directly solves it.
+2. Give EXACTLY ONE guiding nudge — one question or one observation. Not two.
+3. Maximum 2 sentences total. Short is better.
+4. Hint 1 → point the student toward the right concept, method, or formula name only.
+   Hint 2 → describe the very first step they should take, phrased as a question.
+   Hint 3 → if the student has a current attempt, identify the specific part that is wrong;
+             if no attempt, give a tiny concrete example using different numbers.
+5. Use friendly, encouraging language suitable for a 13-year-old.
+6. Do NOT start with "Hint:" or a number. Just the nudge itself.
+"""
+
+
+def generate_hint(
+    db: Session,
+    question_prompt: str,
+    expected_answer: str,
+    hint_number: int,
+    current_answer: str = "",
+) -> str:
+    """
+    Generate a Socratic hint for a student who is stuck on a question.
+    hint_number: 1, 2, or 3 — controls the specificity of the hint.
+    Never reveals the answer — enforced by the prompt.
+    """
+    prompt = (
+        HINT_PROMPT
+        .replace("{hint_number}", str(hint_number))
+        .replace("{question}", question_prompt)
+        .replace("{expected_answer}", expected_answer or "(not specified)")
+        .replace("{current_answer}", current_answer.strip() if current_answer else "(no attempt yet)")
+    )
+    try:
+        return call_llm(
+            db,
+            [{"role": "user", "content": prompt}],
+            max_tokens=120,
+            temperature=0.4,
+        ).strip()
+    except Exception as e:
+        logger.warning(f"Hint generation failed: {e}")
+        # Fallback hints that never give the answer
+        fallbacks = [
+            "Think about which formula or concept from this chapter applies here.",
+            "What is the very first operation you need to do? Write just that step first.",
+            "Check your working carefully — does each step follow logically from the one before?",
+        ]
+        return fallbacks[min(hint_number - 1, 2)]

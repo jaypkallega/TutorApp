@@ -122,3 +122,30 @@ def delete_textbook(
     db.delete(tb)
     db.commit()
     return {"message": "Textbook deleted"}
+
+
+@router.patch("/{textbook_id}", response_model=TextbookOut)
+def update_textbook(
+    textbook_id: int,
+    req: dict,
+    current_user: User = Depends(require_parent),
+    db: Session = Depends(get_db),
+):
+    """Update textbook metadata (title, grade, subject). Does not re-process the file."""
+    tb = db.query(Textbook).filter(Textbook.id == textbook_id).first()
+    if not tb:
+        raise HTTPException(404, "Textbook not found")
+    if "title" in req:
+        title = str(req["title"]).strip()
+        if not title:
+            raise HTTPException(400, "Title cannot be empty")
+        tb.title = title
+    if "grade" in req:
+        tb.grade = int(req["grade"])
+    if "subject" in req:
+        tb.subject = str(req["subject"])
+    db.commit()
+    db.refresh(tb)
+    return tb
+
+

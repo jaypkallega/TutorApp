@@ -38,6 +38,10 @@ export default function SelfAssign() {
   const [genDiff, setGenDiff] = useState('medium')
   // Fix 3: collapsible book groups
   const [collapsedBooks, setCollapsedBooks] = useState<Set<number>>(new Set())
+  // Adaptive difficulty recommendation for selected chapter
+  const [difficultyRec, setDifficultyRec] = useState<{
+    recommended_difficulty: string; has_data: boolean;
+  } | null>(null)
 
   useEffect(() => {
     api.get('/chapters')
@@ -60,10 +64,18 @@ export default function SelfAssign() {
   const selectChapter = async (id: number) => {
     setSelectedChapter(id)
     setSelectedIds(new Set())
+    setDifficultyRec(null)
     setLoadingEx(true)
     try {
-      const r = await api.get(`/exercises?chapter_id=${id}`)
-      setExercises(r.data)
+      const [exRes, recRes] = await Promise.all([
+        api.get(`/exercises?chapter_id=${id}`),
+        api.get(`/chapters/${id}/difficulty-recommendation`).catch(() => null),
+      ])
+      setExercises(exRes.data)
+      if (recRes?.data?.has_data) {
+        setDifficultyRec(recRes.data)
+        setGenDiff(recRes.data.recommended_difficulty)  // auto-default
+      }
     } finally { setLoadingEx(false) }
   }
 
@@ -201,6 +213,15 @@ export default function SelfAssign() {
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
             </select>
+            {difficultyRec?.has_data && (
+              <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+                {difficultyRec.recommended_difficulty === 'easy'
+                  ? '🟢 Your level'
+                  : difficultyRec.recommended_difficulty === 'medium'
+                  ? '🟡 Suggested for you'
+                  : '🔴 Challenge mode'}
+              </span>
+            )}
             <button onClick={generateMore} disabled={generating}
               className="bg-amber-500 text-white text-sm px-3 py-1.5 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1">
               {generating ? (

@@ -33,7 +33,13 @@ interface PieChartData {
 
 interface GeometryData {
   type: 'geometry'; shape?: string; description: string
-  measurements?: { label: string; value: string }[]
+  vertices?: Record<string, [number, number]> | null
+  angles?: Record<string, string | null> | null
+  circle_data?: {
+    cx: number; cy: number; radius: number
+    radius_label?: string | null; diameter_label?: string | null
+  } | null
+  measurements?: { label: string; value: string; type?: string }[]
 }
 
 interface PageImageData {
@@ -225,16 +231,184 @@ function PieChartVisual({ data }: { data: PieChartData }) {
 }
 
 // ---------------------------------------------------------------------------
-// Geometry (description + measurements list — no SVG reconstruction)
+// Geometry SVG — full renderer
 // ---------------------------------------------------------------------------
+const GEO_STROKE = '#1e3a5f'
+const GEO_FILL   = '#e8f4fd'
+const GEO_ACCENT = '#01696f'
+const GEO_LABEL  = '#374151'
+const MEASURE_BG = 'white'
+
+/** Midpoint between two points */
+function mid(a: [number,number], b: [number,number]): [number,number] {
+  return [(a[0]+b[0])/2, (a[1]+b[1])/2]
+}
+
+/** Distance between two points */
+function dist(a: [number,number], b: [number,number]) {
+  return Math.sqrt((b[0]-a[0])**2 + (b[1]-a[1])**2)
+}
+
+/** Unit vector from a to b */
+function unit(a: [number,number], b: [number,number]): [number,number] {
+  const d = dist(a, b) || 1
+  return [(b[0]-a[0])/d, (b[1]-a[1])/d]
+}
+
+/** Measurement label pill at a given point */
+function MeasureLabel({ x, y, text }: { x: number; y: number; text: string }) {
+  const w = text.length * 6 + 10
+  return (
+    <g>
+      <rect x={x - w/2} y={y - 10} width={w} height={18} rx="4" fill={MEASURE_BG} stroke="#d1d5db" strokeWidth="0.8" />
+      <text x={x} y={y + 4} textAnchor="middle" fontSize="10" fill={GEO_LABEL} fontWeight="600">{text}</text>
+    </g>
+  )
+}
+
+/** Right-angle square mark at vertex B between rays BA and BC */
+function RightAngleMark({ B, A, C }: { B: [number,number]; A: [number,number]; C: [number,number] }) {
+  const size = 8
+  const uBA = unit(B, A)
+  const uBC = unit(B, C)
+  const p1: [number,number] = [B[0] + uBA[0]*size, B[1] + uBA[1]*size]
+  const p2: [number,number] = [p1[0] + uBC[0]*size, p1[1] + uBC[1]*size]
+  const p3: [number,number] = [B[0] + uBC[0]*size, B[1] + uBC[1]*size]
+  return <polyline points={`${p1[0]},${p1[1]} ${p2[0]},${p2[1]} ${p3[0]},${p3[1]}`}
+    fill="none" stroke={GEO_STROKE} strokeWidth="1.2" />
+}
+
+/** Arc angle mark at vertex with label */
+function AngleArc({ O, A, B, label }: { O: [number,number]; A: [number,number]; B: [number,number]; label: string }) {
+  const r = 18
+  const uA = unit(O, A)
+  const uB = unit(O, B)
+  const x1 = O[0] + uA[0]*r, y1 = O[1] + uA[1]*r
+  const x2 = O[0] + uB[0]*r, y2 = O[1] + uB[1]*r
+  // cross product to determine sweep
+  const cross = uA[0]*uB[1] - uA[1]*uB[0]
+  const sweep = cross > 0 ? 1 : 0
+  const midUx = (uA[0] + uB[0]) / 2 || 0.1
+  const midUy = (uA[1] + uB[1]) / 2 || 0.1
+  const m = Math.sqrt(midUx**2 + midUy**2) || 1
+  const lx = O[0] + (midUx/m) * (r + 14)
+  const ly = O[1] + (midUy/m) * (r + 14)
+  return (
+    <g>
+      <path d={`M${x1},${y1} A${r},${r} 0 0 ${sweep} ${x2},${y2}`}
+        fill="none" stroke={GEO_ACCENT} strokeWidth="1.2" />
+      <MeasureLabel x={lx} y={ly} text={label} />
+    </g>
+  )
+}
+
 function GeometryVisual({ data }: { data: GeometryData }) {
+  const { shape, vertices, angles, circle_data, measurements, description } = data
+  const V = vertices   // shorthand
+
+  // ── CIRCLE ────────────────────────────────────────────────────────────────
+  if (shape === 'circle' && circle_data) {
+    const { cx, cy, radius, radius_label, diameter_label } = circle_data
+    // Fit circle in 200×160 viewport
+    const scale = Math.min(80 / radius, 1)
+    const scx = 100, scy = 80, sr = radius * scale
+    const rx2 = scx + sr, ry2 = scy
+    return (
+      <svg viewBox="0 0 200 160" className="w-full max-w-xs">
+        <circle cx={scx} cy={scy} r={sr} fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" />
+        {radius_label && <>
+          <line x1={scx} y1={scy} x2={rx2} y2={ry2} stroke={GEO_ACCENT} strokeWidth="1.5" strokeDasharray="3 2" />
+          <MeasureLabel x={(scx+rx2)/2} y={scy - 10} text={radius_label} />
+        </>}
+        {diameter_label && <>
+          <line x1={scx - sr} y1={scy} x2={scx + sr} y2={scy} stroke={GEO_ACCENT} strokeWidth="1.5" strokeDasharray="3 2" />
+          <MeasureLabel x={scx} y={scy + sr + 14} text={diameter_label} />
+        </>}
+        {/* Centre dot */}
+        <circle cx={scx} cy={scy} r="2.5" fill={GEO_STROKE} />
+      </svg>
+    )
+  }
+
+  // ── POLYGON / TRIANGLE / RECTANGLE / ANGLE (need vertices) ────────────────
+  if (V && Object.keys(V).length >= 2) {
+    const keys = Object.keys(V)
+    const pts = keys.map(k => V[k])
+    const polyPoints = pts.map(p => `${p[0]},${p[1]}`).join(' ')
+
+    // Lookup measurements by label for side labels
+    const measureMap: Record<string, string> = {}
+    ;(measurements || []).forEach(m => { measureMap[m.label] = m.value })
+
+    // Determine which vertex has the right angle (for right_triangle)
+    const rightAngleVertex = shape === 'right_triangle'
+      ? (keys.find(k => angles?.[k] === '90°') ?? keys[1])
+      : null
+
+    return (
+      <svg viewBox="0 0 200 160" className="w-full max-w-xs">
+        {/* Shape fill */}
+        <polygon points={polyPoints} fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" strokeLinejoin="round" />
+
+        {/* Right angle mark */}
+        {rightAngleVertex && (() => {
+          const idx = keys.indexOf(rightAngleVertex)
+          const prev = keys[(idx - 1 + keys.length) % keys.length]
+          const next = keys[(idx + 1) % keys.length]
+          return <RightAngleMark B={V[rightAngleVertex]} A={V[prev]} C={V[next]} />
+        })()}
+
+        {/* Vertex labels */}
+        {keys.map(k => {
+          const [x, y] = V[k]
+          // Nudge label away from centroid
+          const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length
+          const cy2 = pts.reduce((s, p) => s + p[1], 0) / pts.length
+          const dx = x - cx, dy = y - cy2
+          const len = Math.sqrt(dx*dx + dy*dy) || 1
+          const nx = x + (dx/len)*12, ny = y + (dy/len)*12
+          return (
+            <text key={k} x={nx} y={ny} textAnchor="middle" dominantBaseline="central"
+              fontSize="11" fontWeight="700" fill={GEO_STROKE}>{k}</text>
+          )
+        })}
+
+        {/* Side measurement labels at edge midpoints */}
+        {keys.map((k, i) => {
+          const next = keys[(i + 1) % keys.length]
+          const edgeLabel = `${k}${next}`
+          const label = measureMap[edgeLabel] || measureMap[`${next}${k}`]
+          if (!label) return null
+          const [mx, my] = mid(V[k], V[next])
+          // Offset label slightly outward from polygon centre
+          const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length
+          const cy2 = pts.reduce((s, p) => s + p[1], 0) / pts.length
+          const dx = mx - cx, dy = my - cy2
+          const len = Math.sqrt(dx*dx + dy*dy) || 1
+          const ox = mx + (dx/len)*14, oy = my + (dy/len)*14
+          return <MeasureLabel key={edgeLabel} x={ox} y={oy} text={label} />
+        })}
+
+        {/* Angle arcs */}
+        {keys.map((k, i) => {
+          const angleLabel = angles?.[k]
+          if (!angleLabel || angleLabel === '90°') return null
+          const prev = keys[(i - 1 + keys.length) % keys.length]
+          const next = keys[(i + 1) % keys.length]
+          return <AngleArc key={k} O={V[k]} A={V[prev]} B={V[next]} label={angleLabel} />
+        })}
+      </svg>
+    )
+  }
+
+  // ── FALLBACK: text description + measurement chips ─────────────────────────
   return (
     <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
       <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">Figure</p>
-      <p className="text-sm text-gray-700 leading-relaxed">{data.description}</p>
-      {data.measurements && data.measurements.length > 0 && (
+      <p className="text-sm text-gray-700 leading-relaxed">{description}</p>
+      {measurements && measurements.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {data.measurements.map((m, i) => (
+          {measurements.map((m, i) => (
             <span key={i} className="bg-white border border-blue-200 text-blue-700 text-xs px-2 py-1 rounded-lg font-mono">
               {m.label} = {m.value}
             </span>

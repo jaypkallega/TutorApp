@@ -39,6 +39,11 @@ export default function AssignmentBuilder() {
   })
   // Fix 2: track which textbook groups are collapsed
   const [collapsedBooks, setCollapsedBooks] = useState<Set<number>>(new Set())
+  // Adaptive difficulty: recommendation for selected chapter
+  const [difficultyRec, setDifficultyRec] = useState<{
+    recommended_difficulty: string; has_data: boolean;
+    signals: { accuracy: number | null; caution: boolean }
+  } | null>(null)
 
   useEffect(() => {
     if (!isParent()) { navigate('/parent/login'); return }
@@ -59,10 +64,15 @@ export default function AssignmentBuilder() {
   const selectChapter = async (id: number) => {
     setSelectedChapter(id)
     setSelectedIds(new Set())
+    setDifficultyRec(null)
     setLoadingExercises(true)
     try {
-      const r = await api.get(`/exercises?chapter_id=${id}`)
-      setExercises(r.data)
+      const [exRes, recRes] = await Promise.all([
+        api.get(`/exercises?chapter_id=${id}`),
+        api.get(`/chapters/${id}/difficulty-recommendation`).catch(() => null),
+      ])
+      setExercises(exRes.data)
+      if (recRes) setDifficultyRec(recRes.data)
     } finally { setLoadingExercises(false) }
   }
 
@@ -156,7 +166,12 @@ export default function AssignmentBuilder() {
                                   : 'border-gray-100 hover:border-gray-200 text-gray-700'
                               }`}
                             >
-                              Ch. {ch.chapter_number}: {ch.title}
+                              <span>Ch. {ch.chapter_number}: {ch.title}</span>
+                              {selectedChapter === ch.id && difficultyRec?.has_data && difficultyRec.recommended_difficulty !== 'easy' && (
+                                <span className="ml-1.5 text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full font-medium">
+                                  ⬆️ {difficultyRec.recommended_difficulty} ready
+                                </span>
+                              )}
                             </button>
                           ))}
                         </div>

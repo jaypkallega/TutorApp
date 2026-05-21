@@ -7,7 +7,7 @@ import VisualDisplay from '../../components/VisualDisplay'
 import api from '../../api/client'
 import {
   ChevronLeft, ChevronRight, PenLine, Type, Camera,
-  CheckCircle2, Send, Save, AlertCircle, Clock
+  CheckCircle2, Send, Save, AlertCircle, Clock, Lightbulb, X
 } from 'lucide-react'
 
 interface Exercise {
@@ -63,6 +63,13 @@ export default function SolveWorkspace() {
   const [submitting, setSubmitting] = useState(false)
   const [saveError, setSaveError] = useState('')
 
+  // Hint state
+  const [hintsUsed, setHintsUsed] = useState<Record<string, number>>({})
+  const [hintText, setHintText] = useState<string | null>(null)
+  const [hintLoading, setHintLoading] = useState(false)
+  const [hintError, setHintError] = useState('')
+  const MAX_HINTS = 3
+
   // -------------------------------------------------------------------------
   // Init: load assignment + start/resume draft
   // -------------------------------------------------------------------------
@@ -77,6 +84,13 @@ export default function SolveWorkspace() {
         setDraftId(dRes.data.draft_id)
         setSavedAnswers(dRes.data.answers || {})
         setExerciseOrder(dRes.data.exercise_order || [])
+        // Restore hint counts from server-side draft
+        const restored: Record<string, number> = {}
+        for (const [exId, ans] of Object.entries(dRes.data.answers || {})) {
+          const a = ans as any
+          if (a.hints_used) restored[exId] = a.hints_used
+        }
+        setHintsUsed(restored)
       } catch {
         navigate('/child/home')
       } finally {
@@ -97,6 +111,8 @@ export default function SolveWorkspace() {
     setPhotoFile(null)
     setPhotoName('')
     setSaveError('')
+    setHintText(null)
+    setHintError('')
     // Restore text input if previously saved
     if (exId && savedAnswers[String(exId)]?.mode === 'text') {
       setTextInput(savedAnswers[String(exId)].text_preview || '')
@@ -167,6 +183,31 @@ export default function SolveWorkspace() {
       setSaveError(e.response?.data?.detail || 'Save failed. Please try again.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Request a hint
+  // -------------------------------------------------------------------------
+  const requestHint = async () => {
+    if (!draftId || !exId) return
+    const used = hintsUsed[String(exId)] ?? 0
+    if (used >= MAX_HINTS) return
+    setHintLoading(true)
+    setHintError('')
+    try {
+      // Pass current text answer if available
+      const currentAnswer = inputMode === 'text' ? textInput : ''
+      const r = await api.post(`/drafts/${draftId}/hint`, {
+        exercise_id: exId,
+        current_answer: currentAnswer,
+      })
+      setHintText(r.data.hint)
+      setHintsUsed(prev => ({ ...prev, [String(exId)]: r.data.hints_used }))
+    } catch (e: any) {
+      setHintError(e.response?.data?.detail || 'Could not get a hint. Please try again.')
+    } finally {
+      setHintLoading(false)
     }
   }
 
@@ -262,6 +303,54 @@ export default function SolveWorkspace() {
           <VisualDisplay visualData={exercise.visual_data} visualType={exercise.visual_type} />
         )}
       </div>
+
+      {/* ── HINT SYSTEM ── */}
+      {(() => {
+        const used = hintsUsed[String(exId)] ?? 0
+        const remaining = MAX_HINTS - used
+        const exhausted = used >= MAX_HINTS
+        return (
+          <div className="mb-4">
+            {/* Hint button */}
+            {!exhausted && (
+              <button
+                id={`hint-btn-q${currentQ}`}
+                onClick={requestHint}
+                disabled={hintLoading}
+                className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-all"
+              >
+                {hintLoading
+                  ? <><div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /> Getting hint…</>
+                  : <><Lightbulb size={15} />
+                    {used === 0 ? 'Need a hint?' : used === MAX_HINTS - 1 ? '⚠️ Last hint' : 'Another hint'}
+                    <span className="text-xs text-amber-500 font-normal">({remaining} of {MAX_HINTS} left)</span>
+                  </>}
+              </button>
+            )}
+            {exhausted && (
+              <p className="text-xs text-gray-400 flex items-center gap-1">
+                <Lightbulb size={12} /> No hints remaining for this question.
+              </p>
+            )}
+
+            {/* Hint callout */}
+            {hintText && (
+              <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <Lightbulb size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="flex-1 text-sm text-amber-800 leading-relaxed">{hintText}</p>
+                <button onClick={() => setHintText(null)} className="text-amber-400 hover:text-amber-600 shrink-0">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Hint error */}
+            {hintError && (
+              <p className="mt-1 text-xs text-red-500">{hintError}</p>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Already-saved banner */}
       {currentSaved && (

@@ -15,6 +15,7 @@ interface QuestionResult {
   confidence: number; method: string
   requires_parent_review: boolean
   misconceptions: Misconception[]
+  hints_used?: number
 }
 
 interface Evaluation {
@@ -135,6 +136,19 @@ export default function Results() {
         </div>
       </div>
 
+      {/* Difficulty promotion callout — shown when score ≥ 80% */}
+      {isGreat && (
+        <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
+          <span className="text-2xl">🌟</span>
+          <div>
+            <p className="font-semibold text-teal-800 text-sm">You're ready for harder questions!</p>
+            <p className="text-xs text-teal-600 mt-0.5">
+              Next time you create a self-practice session from this chapter, we'll suggest a harder difficulty for you.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Per-question breakdown */}
       <div className="space-y-4 mb-6">
         {per_question.map((qr, i) => {
@@ -146,7 +160,12 @@ export default function Results() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-gray-700 text-sm">Question {i + 1}</span>
-                  {qr.requires_parent_review && <AlertTriangle size={14} className="text-amber-500" title="Parent review needed" />}
+                  {qr.requires_parent_review && <span title="Parent review needed"><AlertTriangle size={14} className="text-amber-500" /></span>}
+                  {(qr.hints_used ?? 0) > 0 && (
+                    <span className="flex items-center gap-0.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                      💡 {qr.hints_used} hint{qr.hints_used !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400" title={`Evaluated by: ${methodLabel}`}>{methodLabel}</span>

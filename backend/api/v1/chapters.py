@@ -92,3 +92,42 @@ def explain_concept_endpoint(
     from backend.services.llm_service import explain_concept
     explanation = explain_concept(db, concept.concept_name, concept.explanation, question)
     return {"explanation": explanation}
+
+
+@router.get("/{chapter_id}/difficulty-recommendation")
+def get_difficulty_recommendation(
+    chapter_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return the adaptive difficulty recommendation for a chapter based on
+    the current child's recent performance signals.
+
+    Parent calling: uses the child account's data.
+    Child calling: uses their own data.
+    """
+    from backend.models.user import User as UserModel
+    from backend.processing.adaptive import get_chapter_difficulty_recommendation
+
+    ch = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not ch:
+        raise HTTPException(404, "Chapter not found")
+
+    # Determine which child_id to use
+    if current_user.role == "child":
+        child_id = current_user.id
+    else:
+        # Parent: find the child account
+        child = db.query(UserModel).filter(UserModel.role == "child").first()
+        if not child:
+            return {
+                "recommended_difficulty": "easy",
+                "signals": {"accuracy": None, "hints_penalty": False, "caution": False},
+                "concept_count": 0,
+                "has_data": False,
+            }
+        child_id = child.id
+
+    return get_chapter_difficulty_recommendation(db, child_id, chapter_id)
+
