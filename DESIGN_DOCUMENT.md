@@ -1,6 +1,6 @@
 # MathTutor — System Design Document
 
-**Version:** 1.4  
+**Version:** 1.5  
 **Date:** May 2026  
 **Target:** Windows 11 Server + iPad Client  
 **Stack:** Python / FastAPI · SQLite · React / TypeScript · Vite · Tailwind CSS
@@ -16,12 +16,13 @@
 5. [Frontend Architecture](#5-frontend-architecture)
 6. [AI & Evaluation Pipeline](#6-ai--evaluation-pipeline)
 7. [Teaching Mode Architecture](#7-teaching-mode-architecture)
-8. [Security & Network Model](#8-security--network-model)
-9. [File Structure Reference](#9-file-structure-reference)
-10. [API Reference](#10-api-reference)
-11. [User Flows](#11-user-flows)
-12. [Design Decisions & Rationale](#12-design-decisions--rationale)
-13. [Known Limitations & Future Work](#13-known-limitations--future-work)
+8. [Adaptive Difficulty Engine](#8-adaptive-difficulty-engine)
+9. [Security & Network Model](#9-security--network-model)
+10. [File Structure Reference](#10-file-structure-reference)
+11. [API Reference](#11-api-reference)
+12. [User Flows](#12-user-flows)
+13. [Design Decisions & Rationale](#13-design-decisions--rationale)
+14. [Known Limitations & Future Work](#14-known-limitations--future-work)
 
 ---
 
@@ -41,8 +42,10 @@ The app enables a child to:
 - Learn concepts through an AI Socratic tutor before attempting exercises
 - Solve assignments using drawing (Apple Pencil), typing, or photo upload
 - Submit answers per-question with immediate save confirmation
+- Request up to 3 Socratic hints per question (LLM never reveals the answer)
 - Create their own self-practice assignments
 - View detailed results with per-question feedback
+- See personalised difficulty recommendations based on recent performance
 
 ### 1.2 Design Constraints
 
@@ -228,7 +231,7 @@ Default keys seeded on startup: `llm_provider`, `llm_api_key`, `llm_model_name`,
 | expected_answer | TEXT | Freeform human-readable |
 | expected_method | TEXT | |
 | structured_answer | TEXT | JSON — for deterministic evaluation |
-| visual_type | TEXT | `table`, `number_line`, `bar_graph`, `geometry`, `page_image` |
+| visual_type | TEXT | `table`, `number_line`, `bar_graph`, `pie_chart`, `geometry`, `axes`, `page_image` |
 | visual_data | TEXT | JSON — rendered by VisualDisplay component |
 | source_page | INTEGER | |
 | created_at | DATETIME | |
@@ -371,8 +374,13 @@ Tracks which misconceptions a child triggers over time for parent trend analysis
 | exercises_correct | INTEGER | |
 | unlocked_for_test | BOOLEAN | True after first session |
 | last_interaction | DATETIME | |
+| recommended_difficulty | TEXT | `easy`, `medium`, `hard` — set by adaptive engine |
+| consecutive_promotions | INTEGER | Consecutive eval cycles above promotion threshold |
+| consecutive_demotions | INTEGER | Consecutive eval cycles below demotion threshold |
 
 Mastery thresholds: `introduced` = 1 session, `practised` = 3 sessions or 5+ correct, `mastered` = 5+ sessions and 80%+ accuracy.
+
+Adaptive difficulty thresholds (see §8): promotion requires `avg_readiness ≥ 0.80` AND `last_readiness ≥ 0.75` for 2 consecutive cycles; demotion if `last_readiness < 0.45`.
 
 #### `teaching_sessions`
 | Column | Type | Notes |
@@ -447,9 +455,10 @@ backend/
 │   └── teach.py         — Start session, send message, get progress
 │
 ├── services/
-│   ├── llm_service.py   — LiteLLM wrapper, all prompts, structured answer generation
+│   ├── llm_service.py   — LiteLLM wrapper, all prompts, structured answer + hint generation
 │   ├── ocr_service.py   — Tesseract + vision API fallback
-│   └── teaching_service.py — Socratic session management, phase progression
+│   └── teaching_service.py — Socratic session management, phase progression,
+│                             recommended_difficulty injection into practice phase
 │
 └── processing/
     ├── pdf_parser.py        — PDF → images → text → LLM structure extraction
@@ -459,7 +468,9 @@ backend/
     ├── step_validator.py    — Line-by-line derivation step checker
     ├── science_evaluator.py — Keyword rubric for conceptual answers
     ├── misconception_matcher.py — Pattern matching against known errors
-    └── visual_extractor.py  — Extract visual content from PDF pages
+    ├── visual_extractor.py  — Extract visual content from PDF pages (geometry,
+    │                          cube_net, coordinate axes, compound polygons)
+    └── adaptive.py          — 3-signal readiness formula, promotion/demotion logic
 ```
 
 ### 4.5 Background Task Pattern
@@ -554,7 +565,10 @@ App
     ├── NumberLineVisual (SVG)
     ├── BarGraphVisual (SVG)
     ├── PieChartVisual (SVG)
-    ├── GeometryVisual (description + measurements)
+    ├── GeometryVisual (SVG — triangle, rectangle, circle, angle,
+    │   ├── polygon / compound shapes (6+ vertices)
+    │   └── CubeNetVisual (grid of squares with fold-line dashes)  [v1.5]
+    ├── CoordinateAxesVisual (x-y grid, points, segments, polygon)  [v1.5]
     └── PageImageVisual (img from /api/v1/textbooks/{id}/page/{n})
 ```
 
@@ -770,15 +784,64 @@ not_started
 
 ---
 
-## 8. Security & Network Model
+## 8. Adaptive Difficulty Engine
 
-### 8.1 Authentication
+### 8.1 Design Philosophy
+
+The engine operates as a **recommendation layer**, not a hidden automatic switch. Parents always see a badge explaining *why* a difficulty change is suggested. The system never silently changes difficulty on parent-created assignments — only on child self-assignments and in the AI Tutor practice phase.
+
+### 8.2 Three Signals
+
+| Signal | Weight | Source |
+|---|---|---|
+| Assignment accuracy | 0.6 | `exercises_correct / exercises_attempted` per concept |
+| Independence (hint usage) | 0.2 | Inverse of hint fraction used per session |
+| Stability (confidence flags) | 0.2 | Absence of parent-review flags and major misconceptions |
+
+Combined: `readiness = 0.6 × accuracy + 0.2 × independence + 0.2 × stability`
+
+### 8.3 Promotion / Demotion Rules
+
+```
+If avg_readiness ≥ 0.80 AND last_readiness ≥ 0.75
+  → consecutive_promotions += 1
+  → if consecutive_promotions ≥ 2: move up one difficulty level
+
+If last_readiness < 0.45
+  → consecutive_demotions += 1
+  → if consecutive_demotions ≥ 2: move down one difficulty level
+
+If active misconception flag exists
+  → block promotion (misconception must clear first)
+```
+
+### 8.4 Integration Points
+
+| Where | Behaviour |
+|---|---|
+| **AI Teach Mode — practice phase** | `teaching_service.py` fetches `recommended_difficulty` and injects it into the LLM system prompt so the AI calibrates its practice question difficulty |
+| **Child SelfAssign** | Shows a recommendation badge with plain-English reason (e.g. "You got 9/10 last time — try hard?") |
+| **Parent AssignmentBuilder** | Shows a "Difficulty Insights" panel per chapter with concept-level recommendations and explanations |
+| **Parent Dashboard** | Difficulty Insights card summarising concepts ready for promotion and those needing consolidation |
+
+### 8.5 Hint Tracking
+
+- Each exercise allows a maximum of **3 hints**.
+- Hints are Socratic — the LLM prompt explicitly prohibits revealing the answer or any sub-answer.
+- Hint usage count is stored per session and fed into the independence signal.
+- Parents can see hint usage per assignment in the Dashboard.
+
+---
+
+## 9. Security & Network Model
+
+### 9.1 Authentication
 
 - **Parent**: PIN-based login. PIN hashed with bcrypt, stored in `users.parent_pin_hash`. JWT token returned on success (8-hour expiry).
 - **Child**: No PIN required. `POST /auth/child/session` returns a token automatically. This is intentional — the child should not be blocked by authentication.
 - **Token storage**: `sessionStorage` (not `localStorage`) — clears when browser tab closes.
 
-### 8.2 Authorisation
+### 9.2 Authorisation
 
 Three dependency levels:
 - `get_current_user` — any valid JWT
@@ -790,13 +853,13 @@ Notable permissions:
 - Child **can** generate AI exercises (needed for self-assign)
 - Child **cannot** approve chapters, view settings, delete textbooks
 
-### 8.3 LAN Enforcement
+### 9.3 LAN Enforcement
 
 The `lan_only_middleware` checks every request's client IP against private network prefixes: `10.`, `172.`, `192.168.`, `127.`, `::1`. If the IP doesn't match any prefix and `lan_only_mode=1`, the request is rejected with HTTP 403.
 
 This setting is stored in the DB (not just `.env`) so it can be toggled from the Settings UI without restarting the server.
 
-### 8.4 API Key Security
+### 9.4 API Key Security
 
 The LLM API key is:
 - Stored in `app_settings` table (not in code)
@@ -806,7 +869,7 @@ The LLM API key is:
 
 ---
 
-## 9. File Structure Reference
+## 10. File Structure Reference
 
 ```
 mathtutor/
@@ -818,7 +881,9 @@ mathtutor/
 ├── migrate_v1_2.py          — DB migration: structured_answer, evaluations confidence
 ├── migrate_v1_3.py          — DB migration: visual_type, concept_progress, teaching_sessions
 ├── migrate_v1_4.py          — DB migration: submission_drafts
+├── migrate_v1_5.py          — DB migration: recommended_difficulty, consecutive_promotions/demotions
 ├── CHECKPOINT_v1.1.md       — build state checkpoint
+├── CHECKPOINT_v1.4.md       — build state checkpoint (v1.4)
 │
 ├── backend/
 │   ├── __init__.py
@@ -833,7 +898,7 @@ mathtutor/
 │   └── processing/          — pdf_parser, answer_analyzer, evaluator,
 │                              math_evaluator, step_validator,
 │                              science_evaluator, misconception_matcher,
-│                              visual_extractor
+│                              visual_extractor, adaptive
 │
 ├── frontend/
 │   ├── index.html
@@ -873,7 +938,7 @@ mathtutor/
 
 ---
 
-## 10. API Reference
+## 11. API Reference
 
 All endpoints are prefixed `/api/v1`. Authentication required unless noted.
 
@@ -902,6 +967,7 @@ All endpoints are prefixed `/api/v1`. Authentication required unless noted.
 | GET | `/textbooks` | Parent | List all textbooks |
 | POST | `/textbooks` | Parent | Upload PDF (starts background analysis) |
 | GET | `/textbooks/{id}` | Parent | Get single textbook |
+| PATCH | `/textbooks/{id}` | Parent | Update textbook title inline |
 | DELETE | `/textbooks/{id}` | Parent | Delete textbook + file |
 | GET | `/textbooks/{id}/page/{n}` | Any | Serve page image PNG |
 
@@ -913,6 +979,7 @@ All endpoints are prefixed `/api/v1`. Authentication required unless noted.
 | GET | `/chapters/{id}` | Any | Get chapter with concepts |
 | PATCH | `/chapters/{id}` | Parent | Approve, update teaching style |
 | POST | `/chapters/{id}/explain` | Any | Get AI explanation for a concept |
+| GET | `/chapters/{id}/difficulty-recommendation` | Any | Get adaptive difficulty insights for a chapter |
 
 ### Exercises (`/exercises`)
 
@@ -956,8 +1023,9 @@ All endpoints are prefixed `/api/v1`. Authentication required unless noted.
 |---|---|---|---|
 | POST | `/teach/session/start` | Child | Start or resume a teaching session |
 | POST | `/teach/session/message` | Child | Send message, get AI response |
-| GET | `/teach/progress` | Any | Get mastery progress for all concepts |
+| GET | `/teach/progress` | Any | Get mastery progress for all concepts (includes `chapter_id`, `last_interaction`) |
 | GET | `/teach/progress/{concept_id}` | Any | Get progress for one concept |
+| POST | `/teach/hint` | Child | Request a Socratic hint (max 3 per question; never reveals answer) |
 
 ### Misconceptions (`/misconceptions`)
 
@@ -967,7 +1035,7 @@ All endpoints are prefixed `/api/v1`. Authentication required unless noted.
 
 ---
 
-## 11. User Flows
+## 12. User Flows
 
 ### 11.1 First Run (Parent)
 
@@ -987,27 +1055,30 @@ Open http://localhost:5173
     → Select chapter → select questions → Create Assignment
 ```
 
-### 11.2 Child Learning Session
+### 12.2 Child Learning Session
 
 ```
 Open app on iPad (http://192.168.0.178:8000)
     → /child/home  (auto-session, no login needed)
-    → Tap a chapter under "Learn with AI Tutor"
-    → /child/teach/{chapterId}
+    → Horizontal chapter strip under "Learn with AI Tutor"
+       (last-accessed chapter highlighted with "Continue →" badge)
+    → Tap a chapter chip → /child/teach/{chapterId}
     → Select concept (shows mastery indicator)
     → AI opens with a hook question
     → Converse for 5 phases (Hook → Practice)
+       (practice phase uses recommended_difficulty to calibrate AI questions)
     → Session completes → concept marked "introduced"
     → Return to home
     → Start an assignment  → /child/solve/{assignmentId}
     → Per question: draw/type/photo → Save Answer
+    → If stuck: tap "Need a hint?" → up to 3 Socratic nudges per question
     → Navigate between questions freely
     → Submit Test → /child/results/{submissionId}
     → Wait for marking (5-15 seconds)
     → See score, per-question feedback, misconception hints
 ```
 
-### 11.3 Parent Review
+### 12.3 Parent Review
 
 ```
 Login → /parent/dashboard
@@ -1016,11 +1087,15 @@ Login → /parent/dashboard
     → Expand submission to see per-question results
     → ⚠️ flag on low-confidence answers → can review manually
     → See "My child triggered fraction addition error 3 times" alert
+    → See Difficulty Insights card:
+       "Integers: ready to move to Hard (scored 88%, low hint usage)"
+       "Fractions: stay at Medium (flagged misconception: denominator addition)"
+    → Click textbook title in TextbookLibrary to rename it inline (PATCH)
 ```
 
 ---
 
-## 12. Design Decisions & Rationale
+## 13. Design Decisions & Rationale
 
 ### 12.1 Why SQLite and not PostgreSQL?
 
@@ -1046,13 +1121,25 @@ Three reasons: (1) Page refresh on iPad loses in-memory canvas strokes — serve
 
 For Grade 8 science answers, weighted keyword rubrics achieve 85-90% accuracy. sentence-transformers would require downloading a 90MB+ PyTorch model, with known Windows/venv conflicts. The marginal accuracy gain (to ~92%) is not worth the installation complexity for a home app.
 
-### 12.7 Why Socratic teaching instead of direct explanation?
+### 13.7 Why Socratic teaching instead of direct explanation?
 
 Research in educational psychology (Bloom, Vygotsky) consistently shows that guided discovery produces stronger retention than passive reading. The app has the textbook content — the AI's job is to make the child think, not to replace the book. Direct explanation is available in LearnMode (the original static mode); TeachMode is the adaptive alternative.
 
+### 13.8 Why hints cap at 3 and never reveal the answer?
+
+The goal is scaffolded independence, not answer retrieval. Three hints match Vygotsky's zone of proximal development — enough guidance to unlock the next step, not so much that the child stops thinking. Hint count feeds into the independence signal of the adaptive engine, so a child who always uses all 3 hints will see a lower readiness score even if they answer correctly.
+
+### 13.9 Why recommendation-first adaptive difficulty (not automatic)?
+
+Automatic difficulty switching behind the scenes is confusing for both parent and child — the child doesn't know why questions changed; the parent doesn't know why the assignment is harder than they set. The recommendation model keeps the parent as the final authority. The only place difficulty switches automatically is in the AI Tutor practice phase, which is a conversation, not a graded assignment — a safe context for experimentation.
+
+### 13.10 Why a horizontal scroll strip for chapter selection?
+
+A 2-column grid of chapter cards forces the child to scroll ~500px just to find Chapter 5. A horizontal strip collapses the entire section to ~96px regardless of chapter count, keeping assignments and self-practice visible above the fold. The "Continue →" badge reduces friction further — the child can resume exactly where they left off with one tap.
+
 ---
 
-## 13. Known Limitations & Future Work
+## 14. Known Limitations & Future Work
 
 ### Current Limitations
 
@@ -1062,8 +1149,27 @@ Research in educational psychology (Bloom, Vygotsky) consistently shows that gui
 | Per-question canvas drafts | Canvas drafts are stored as PNG server-side. When navigating back to a saved canvas question, the drawing is not restored (only the "saved" indicator shows). |
 | OCR accuracy | Tesseract struggles with messy handwriting. Vision API (Gemini/GPT-4o) is significantly better but costs API tokens per submission. |
 | Step validator | Only validates linear equation solving reliably. Geometry proofs, simultaneous equations, and calculus steps are not validated. |
-| Visual generation | Tables, number lines, bar graphs from exercises are extracted by LLM vision. Geometric diagrams (triangles, circles with measurements) are described in text, not rendered as SVG with exact measurements. |
+| Geometry visual — multiple choice | Questions of the form "which of the following figures is a net?" cannot show labelled diagram options (A/B/C/D). The exercise generator now blocks these and converts them to constructive questions. A future image-option MCQ format would require a UI type change. |
+| Adaptive signals — hint tracking | Hint count is currently tracked at session level; per-exercise precision would give a more accurate independence signal. |
 | Offline operation | LLM API calls require internet. Local-only mode (Tesseract OCR + a local LLM like Ollama) is partially supported via `custom` provider but not tested. |
+
+### Feature Status Summary (v1.5)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Hint system (3 Socratic hints/question) | ✅ Done | `llm_service.generate_hint()`, wired in `SolveWorkspace` |
+| Geometry SVG renderer — triangles, circles, angles | ✅ Done | `VisualDisplay.GeometryVisual` |
+| Geometry SVG renderer — cube nets | ✅ Done | `CubeNetVisual` with fold-line dashes |
+| Geometry SVG renderer — coordinate axes | ✅ Done | `CoordinateAxesVisual` with grid, arrows, points |
+| Geometry SVG renderer — compound shapes | ✅ Done | 6+ vertex polygon path, example in extractor prompt |
+| Geometry question generation guardrails | ✅ Done | `GENERATE_EXERCISES_PROMPT` blocks unrenderable MCQ |
+| Adaptive difficulty engine | ✅ Done | `adaptive.py`, 3-signal readiness, consecutive logic |
+| Adaptive difficulty — parent dashboard insights | ✅ Done | Difficulty Insights card in `Dashboard.tsx` |
+| Adaptive difficulty — child self-assign badges | ✅ Done | Recommendation panel in `SelfAssign.tsx` |
+| Adaptive difficulty — AI tutor calibration | ✅ Done | `teaching_service.py` injects `recommended_difficulty` |
+| Textbook title inline editing | ✅ Done | PATCH `/textbooks/{id}` + inline UI in `TextbookLibrary.tsx` |
+| Compact child topic selection (horizontal strip) | ✅ Done | `Home.tsx` — scrollable chip strip grouped by textbook |
+| "Continue →" last-accessed chapter badge | ✅ Done | Derived from `last_interaction` in progress data |
 
 ### Planned Future Work
 
@@ -1071,11 +1177,10 @@ Research in educational psychology (Bloom, Vygotsky) consistently shows that gui
 |---|---|---|
 | Multiple child accounts | Medium | Schema supports it (assigned_to FK), UI does not |
 | Per-question canvas restore | Low | Fetch image from server on navigate back |
-| Geometry SVG renderer | Medium | Use Three.js or a geometry library to render measured diagrams |
+| Visual identification MCQ (nets from options) | Medium | Requires new exercise type + image option UI |
 | Streak and gamification | Low | Daily streak counter, badges for mastery milestones |
 | Progress export (PDF report) | Medium | Parent weekly report with charts |
 | Alembic migrations | Medium | Replace manual migration scripts with proper Alembic versioning |
-| Hint system | High | Child can request a hint (LLM gives clue without answer) |
-| Adaptive difficulty | Medium | If child scores >80% on easy, next assignment auto-increases difficulty |
+| Per-exercise hint tracking | Low | More precise independence signal for adaptive engine |
 | Offline LLM (Ollama) | Low | Full offline operation via local model |
 | Multiple subjects per session | Low | Currently each textbook has one subject; mixed assignments across subjects |

@@ -1,29 +1,106 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import Layout from '../../components/Layout'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import api from '../../api/client'
-import { BookOpen, PlayCircle, CheckCircle2, PlusCircle, Star, Sparkles, Trophy } from 'lucide-react'
+import { BookOpen, PlayCircle, CheckCircle2, PlusCircle, Star, Sparkles, Trophy, ChevronRight } from 'lucide-react'
 
-interface Assignment { id: number; title: string | null; question_count: number; status: string; is_self_assigned: boolean }
-interface Chapter { id: number; chapter_number: number; title: string; approved: boolean; textbook_title?: string }
-interface ProgressItem { concept_id: number; concept_name: string; chapter_title: string; mastery_level: string; unlocked_for_test: boolean }
-
-const MASTERY = {
-  not_started: { icon: '○', color: 'text-gray-300', bg: 'bg-gray-50', label: 'Not started' },
-  introduced:  { icon: '◑', color: 'text-blue-500', bg: 'bg-blue-50', label: 'Introduced' },
-  practised:   { icon: '◕', color: 'text-amber-500', bg: 'bg-amber-50', label: 'Practised' },
-  mastered:    { icon: '●', color: 'text-green-500', bg: 'bg-green-50', label: 'Mastered' },
+interface Assignment  { id: number; title: string | null; question_count: number; status: string; is_self_assigned: boolean }
+interface Chapter     { id: number; chapter_number: number; title: string; approved: boolean; textbook_title?: string; textbook_id?: number }
+interface ProgressItem {
+  concept_id: number; concept_name: string
+  chapter_title: string; chapter_id: number
+  mastery_level: string; unlocked_for_test: boolean
+  last_interaction: string | null
 }
 
+// ── mastery colour tokens ─────────────────────────────────────────────────────
+const MASTERY_BAR: Record<string, string> = {
+  not_started: 'bg-gray-200',
+  introduced:  'bg-blue-400',
+  practised:   'bg-amber-400',
+  mastered:    'bg-green-500',
+}
+
+// ── Chapter chip component ────────────────────────────────────────────────────
+function ChapterChip({
+  ch, mastered, total, isContinue,
+}: {
+  ch: Chapter; mastered: number; total: number; isContinue: boolean
+}) {
+  const pct = total > 0 ? Math.round((mastered / total) * 100) : 0
+  const allDone = total > 0 && mastered === total
+  const hasProgress = total > 0
+
+  return (
+    <Link
+      id={`chapter-chip-${ch.id}`}
+      to={`/child/teach/${ch.id}`}
+      className={`
+        flex-none w-44 min-h-[96px] rounded-2xl border-2 p-3 flex flex-col gap-1 transition-all
+        hover:shadow-md hover:-translate-y-0.5 active:scale-95
+        ${isContinue
+          ? 'border-teal-400 bg-gradient-to-br from-teal-50 to-white'
+          : allDone
+          ? 'border-green-200 bg-green-50'
+          : hasProgress
+          ? 'border-primary-200 bg-white'
+          : 'border-gray-100 bg-white hover:border-primary-200'}
+      `}
+    >
+      {/* Top row: chapter badge + continue pill */}
+      <div className="flex items-center justify-between gap-1">
+        <span className={`
+          text-xs font-bold px-1.5 py-0.5 rounded-lg leading-none
+          ${isContinue ? 'bg-teal-500 text-white' : 'bg-primary-100 text-primary-700'}
+        `}>
+          Ch.{ch.chapter_number}
+        </span>
+        {isContinue && (
+          <span className="text-[10px] font-semibold text-teal-600 flex items-center gap-0.5 whitespace-nowrap">
+            Continue <ChevronRight size={10} />
+          </span>
+        )}
+        {allDone && !isContinue && (
+          <CheckCircle2 size={13} className="text-green-500 shrink-0" />
+        )}
+      </div>
+
+      {/* Title */}
+      <p className="text-xs font-semibold text-gray-800 leading-tight line-clamp-2 flex-1">
+        {ch.title}
+      </p>
+
+      {/* Progress bar */}
+      {hasProgress ? (
+        <div className="mt-auto">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-gray-400">{mastered}/{total} mastered</span>
+            <span className="text-[10px] font-medium text-gray-500">{pct}%</span>
+          </div>
+          <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${MASTERY_BAR.mastered}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      ) : (
+        <p className="text-[10px] text-gray-400 mt-auto">Tap to start ✨</p>
+      )}
+    </Link>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function ChildHome() {
   const { user, setUser } = useAuthStore()
   const navigate = useNavigate()
-  const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [chapters, setChapters] = useState<Chapter[]>([])
+  const [assignments,   setAssignments]   = useState<Assignment[]>([])
+  const [chapters,      setChapters]      = useState<Chapter[]>([])
   const [progressItems, setProgressItems] = useState<ProgressItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading,       setLoading]       = useState(true)
 
   useEffect(() => {
     const init = async () => {
@@ -45,12 +122,36 @@ export default function ChildHome() {
     init()
   }, [])
 
-  if (loading) return <Layout><LoadingSpinner text="Loading your work..." /></Layout>
-
+  // ── Derived values ──────────────────────────────────────────────────────────
   const parentAssignments = assignments.filter(a => a.status === 'active' && !a.is_self_assigned)
-  const selfAssignments = assignments.filter(a => a.status === 'active' && a.is_self_assigned)
-  const masteredCount = progressItems.filter(p => p.mastery_level === 'mastered').length
-  const inProgressCount = progressItems.filter(p => ['introduced', 'practised'].includes(p.mastery_level)).length
+  const selfAssignments   = assignments.filter(a => a.status === 'active' && a.is_self_assigned)
+  const masteredCount     = progressItems.filter(p => p.mastery_level === 'mastered').length
+  const inProgressCount   = progressItems.filter(p => ['introduced', 'practised'].includes(p.mastery_level)).length
+
+  // Last-accessed chapter: concept with the most-recent last_interaction
+  const lastChapterId = useMemo(() => {
+    const withTime = progressItems.filter(p => p.last_interaction && p.chapter_id)
+    if (!withTime.length) return null
+    const latest = withTime.reduce((a, b) =>
+      new Date(a.last_interaction!) > new Date(b.last_interaction!) ? a : b
+    )
+    return latest.chapter_id
+  }, [progressItems])
+
+  // Group chapters by textbook (preserve insertion order)
+  const bookGroups = useMemo(() => {
+    const groups: Record<string, { textbook_id?: number; chapters: Chapter[] }> = {}
+    for (const ch of chapters) {
+      const key = ch.textbook_title || 'My Textbook'
+      if (!groups[key]) groups[key] = { textbook_id: ch.textbook_id, chapters: [] }
+      groups[key].chapters.push(ch)
+    }
+    return groups
+  }, [chapters])
+
+  const multipleBooks = Object.keys(bookGroups).length > 1
+
+  if (loading) return <Layout><LoadingSpinner text="Loading your work..." /></Layout>
 
   return (
     <Layout>
@@ -97,36 +198,53 @@ export default function ChildHome() {
         )}
       </section>
 
-      {/* AI Learn with tutor */}
+      {/* ── Learn with AI Tutor — horizontal strip, grouped by textbook ── */}
       {chapters.length > 0 && (
         <section className="mb-6">
           <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
             <Sparkles className="text-primary-500" size={18} /> Learn with AI Tutor
           </h2>
-          <div className="grid sm:grid-cols-2 gap-3">
-            {chapters.map((ch) => {
-              // Count mastery for concepts in this chapter
-              const chapterProgress = progressItems.filter(p => p.chapter_title === ch.title)
-              const masteredInChapter = chapterProgress.filter(p => p.mastery_level === 'mastered').length
-              const totalInChapter = chapterProgress.length
-              return (
-                <Link key={ch.id} to={`/child/teach/${ch.id}`}
-                  className="card hover:shadow-md transition-all flex items-center gap-3 cursor-pointer">
-                  <div className="w-10 h-10 bg-primary-50 rounded-xl flex items-center justify-center font-bold text-primary-600 shrink-0 text-sm">
-                    {ch.chapter_number}
+
+          <div className="space-y-4">
+            {Object.entries(bookGroups).map(([bookTitle, { chapters: bookChapters }]) => (
+              <div key={bookTitle}>
+                {/* Textbook label — only shown when multiple books */}
+                {multipleBooks && (
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <BookOpen size={12} className="text-gray-400" />
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider truncate">
+                      {bookTitle}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-800 truncate text-sm">{ch.title}</div>
-                    {ch.textbook_title && <div className="text-xs text-gray-400 truncate">{ch.textbook_title}</div>}
-                    {totalInChapter > 0 && (
-                      <div className="text-xs text-primary-500 mt-0.5">{masteredInChapter}/{totalInChapter} mastered</div>
-                    )}
-                  </div>
-                  <Sparkles size={16} className="text-primary-300 shrink-0" />
-                </Link>
-              )
-            })}
+                )}
+
+                {/* Horizontal chip strip */}
+                <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2 -mx-4 px-4">
+                  {bookChapters.map((ch) => {
+                    const chapterProgress = progressItems.filter(p => p.chapter_id === ch.id)
+                    const mastered = chapterProgress.filter(p => p.mastery_level === 'mastered').length
+                    const total    = chapterProgress.length
+                    return (
+                      <ChapterChip
+                        key={ch.id}
+                        ch={ch}
+                        mastered={mastered}
+                        total={total}
+                        isContinue={ch.id === lastChapterId}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
+
+          {/* Scroll hint — only shown when there are enough chips to scroll */}
+          {chapters.length > 3 && (
+            <p className="text-[10px] text-gray-400 mt-1 text-right flex items-center justify-end gap-0.5">
+              Swipe to see more <ChevronRight size={10} />
+            </p>
+          )}
         </section>
       )}
 

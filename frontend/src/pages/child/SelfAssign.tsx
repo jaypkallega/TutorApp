@@ -41,6 +41,7 @@ export default function SelfAssign() {
   // Adaptive difficulty recommendation for selected chapter
   const [difficultyRec, setDifficultyRec] = useState<{
     recommended_difficulty: string; has_data: boolean;
+    reason: string | null; cautions: string[];
   } | null>(null)
 
   useEffect(() => {
@@ -214,13 +215,20 @@ export default function SelfAssign() {
               <option value="hard">Hard</option>
             </select>
             {difficultyRec?.has_data && (
-              <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
-                {difficultyRec.recommended_difficulty === 'easy'
-                  ? '🟢 Your level'
-                  : difficultyRec.recommended_difficulty === 'medium'
-                  ? '🟡 Suggested for you'
-                  : '🔴 Challenge mode'}
-              </span>
+              <div className="w-full mt-2 space-y-1">
+                {difficultyRec.reason && (
+                  <p className="text-xs text-teal-700">
+                    {difficultyRec.recommended_difficulty === 'easy' ? '🟢' :
+                     difficultyRec.recommended_difficulty === 'medium' ? '🟡' : '🔴'}
+                    {' '}{difficultyRec.reason}
+                  </p>
+                )}
+                {(difficultyRec.cautions ?? []).map((c: string, i: number) => (
+                  <p key={i} className="text-xs text-amber-600 flex items-start gap-1">
+                    <span>⚠️</span>{c}
+                  </p>
+                ))}
+              </div>
             )}
             <button onClick={generateMore} disabled={generating}
               className="bg-amber-500 text-white text-sm px-3 py-1.5 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1">

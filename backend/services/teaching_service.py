@@ -89,7 +89,10 @@ EXAMPLE PHASE: Work through one concrete problem together.
 
     "practice": """\
 PRACTICE PHASE: Student tries a problem independently.
-- Give ONE clear practice problem appropriate to {concept_name} and grade {grade}.
+- Give ONE clear practice problem at {difficulty} difficulty appropriate to {concept_name} and grade {grade}.
+  * easy: single-step, small integers, direct question
+  * medium: two-step, may involve fractions or decimals, straightforward wording
+  * hard: multi-step, word problem or table/diagram, requires applying the concept to a new context
 - Say "Have a go — show me your thinking step by step."
 - When they respond, evaluate their approach first, then their answer.
 - If correct: celebrate specifically and confirm the concept is solid.
@@ -103,7 +106,11 @@ COMPLETE PHASE: Wrap up the session warmly.
 }
 
 
-def _build_system_prompt(concept: dict, phase: str, subject: str = "Mathematics", grade: int = 8) -> str:
+def _build_system_prompt(
+    concept: dict, phase: str,
+    subject: str = "Mathematics", grade: int = 8,
+    difficulty: str = "medium",
+) -> str:
     base = BASE_SYSTEM.format(
         grade=grade,
         subject=subject,
@@ -114,6 +121,7 @@ def _build_system_prompt(concept: dict, phase: str, subject: str = "Mathematics"
     phase_instr = PHASE_INSTRUCTIONS.get(phase, "")
     phase_instr = phase_instr.replace("{concept_name}", concept.get("concept_name", ""))
     phase_instr = phase_instr.replace("{grade}", str(grade))
+    phase_instr = phase_instr.replace("{difficulty}", difficulty)
     return base + "\n\n" + phase_instr
 
 
@@ -286,8 +294,21 @@ def send_message(
 
     session.phase = new_phase
 
+    # R5: Resolve recommended difficulty for the practice phase
+    # Done AFTER new_phase is known so we can check whether we just entered practice.
+    practice_difficulty = "medium"
+    if new_phase == "practice" or current_phase == "practice":
+        try:
+            from backend.processing.adaptive import get_concept_recommended_difficulty
+            practice_difficulty = get_concept_recommended_difficulty(
+                db, child_id, session.concept_id
+            )
+        except Exception:
+            pass  # fallback to medium
+
     # Build conversation for LLM (last 10 messages for context window)
-    system = _build_system_prompt(concept_dict, new_phase, subject, grade)
+    system = _build_system_prompt(concept_dict, new_phase, subject, grade,
+                                  difficulty=practice_difficulty)
     llm_messages = [{"role": "system", "content": system}]
     for m in messages[-10:]:
         llm_messages.append({"role": m["role"], "content": m["content"]})

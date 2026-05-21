@@ -31,52 +31,75 @@ Determine if this exercise REQUIRES a visual element (table, diagram, graph, num
 
 If NO visual is needed, return: {{"has_visual": false}}
 
-If YES, extract the visual as structured JSON:
+If YES, extract the visual as structured JSON. Choose the BEST matching type below:
 
-For a TABLE:
-{{"has_visual": true, "type": "table", "title": "optional title", "headers": ["Col1", "Col2"], "rows": [["a", "b"], ["c", "d"]]}}
+━━ TABLE ━━
+{{"has_visual": true, "type": "table", "title": "optional title",
+  "headers": ["Col1", "Col2"], "rows": [["a", "b"], ["c", "d"]]}}
 
-For a NUMBER LINE:
-{{"has_visual": true, "type": "number_line", "min": -10, "max": 10, "marked_points": [{{"value": 3, "label": "A"}}, {{"value": -5, "label": "B"}}], "arrows": []}}
+━━ NUMBER LINE ━━
+{{"has_visual": true, "type": "number_line", "min": -10, "max": 10,
+  "marked_points": [{{"value": 3, "label": "A"}}, {{"value": -5, "label": "B"}}], "arrows": []}}
 
-For a BAR GRAPH:
-{{"has_visual": true, "type": "bar_graph", "title": "Graph title", "x_label": "Category", "y_label": "Value", "bars": [{{"label": "A", "value": 10}}, {{"label": "B", "value": 20}}]}}
+━━ BAR GRAPH ━━
+{{"has_visual": true, "type": "bar_graph", "title": "Graph title",
+  "x_label": "Category", "y_label": "Value",
+  "bars": [{{"label": "A", "value": 10}}, {{"label": "B", "value": 20}}]}}
 
-For a PIE CHART:
-{{"has_visual": true, "type": "pie_chart", "title": "title", "slices": [{{"label": "A", "value": 30}}, {{"label": "B", "value": 70}}]}}
+━━ PIE CHART ━━
+{{"has_visual": true, "type": "pie_chart", "title": "title",
+  "slices": [{{"label": "A", "value": 30}}, {{"label": "B", "value": 70}}]}}
 
-For a GEOMETRIC FIGURE — IMPORTANT: provide actual vertex coordinates where possible:
+━━ COORDINATE AXES / GRAPH (points on x-y grid) ━━
+Use this when the question involves plotting points, drawing shapes on a grid, or coordinate geometry.
+{{"has_visual": true, "type": "axes",
+  "x_min": -5, "x_max": 10, "y_min": -5, "y_max": 10,
+  "points": [{{"x": 3, "y": 4, "label": "A"}}, {{"x": -2, "y": 1, "label": "B"}}],
+  "segments": [{{"from": [0, 0], "to": [3, 4], "label": "OA", "dashed": false}}],
+  "polygon_points": [[2, 3], [-1, 4], [0, -2]],
+  "description": "Coordinate plane with points A(3,4) and B(-2,1)"}}
+Notes:
+  - Set x_min/x_max/y_min/y_max to fit all points with a small margin.
+  - polygon_points: list of [x,y] forming a closed shape — use null if no polygon.
+  - segments: line segments to draw — use [] if none.
+  - points: labelled points — use [] if none.
+
+━━ GEOMETRIC FIGURE — single shape with measurements ━━
+Always provide actual vertex coordinates in a 0–200 (x) by 0–160 (y) bounding box.
 
 Triangle ABC with AB=5cm, BC=7cm, angle B=60°:
 {{"has_visual": true, "type": "geometry", "shape": "triangle",
   "description": "Triangle ABC with AB=5 cm, BC=7 cm, angle B=60°",
   "vertices": {{"A": [0, 86], "B": [0, 0], "C": [100, 0]}},
   "angles": {{"A": null, "B": "60°", "C": null}},
-  "circle_data": null,
-  "measurements": [{{"label": "AB", "value": "5 cm", "type": "side"}}, {{"label": "BC", "value": "7 cm", "type": "side"}}, {{"label": "∠B", "value": "60°", "type": "angle"}}]}}
+  "circle_data": null, "net_cells": null, "cell_labels": {{}},
+  "measurements": [{{"label": "AB", "value": "5 cm", "type": "side"}},
+                   {{"label": "BC", "value": "7 cm", "type": "side"}},
+                   {{"label": "∠B", "value": "60°", "type": "angle"}}]}}
 
 Right-angled triangle with legs 3cm, 4cm:
 {{"has_visual": true, "type": "geometry", "shape": "right_triangle",
   "description": "Right-angled triangle with legs 3 cm and 4 cm",
   "vertices": {{"A": [0, 75], "B": [0, 0], "C": [100, 0]}},
   "angles": {{"A": null, "B": "90°", "C": null}},
-  "circle_data": null,
-  "measurements": [{{"label": "AB", "value": "3 cm", "type": "side"}}, {{"label": "BC", "value": "4 cm", "type": "side"}}]}}
+  "circle_data": null, "net_cells": null, "cell_labels": {{}},
+  "measurements": [{{"label": "AB", "value": "3 cm", "type": "side"}},
+                   {{"label": "BC", "value": "4 cm", "type": "side"}}]}}
 
 Rectangle 8cm × 5cm:
 {{"has_visual": true, "type": "geometry", "shape": "rectangle",
   "description": "Rectangle 8 cm by 5 cm",
   "vertices": {{"A": [0, 62], "B": [0, 0], "C": [100, 0], "D": [100, 62]}},
-  "angles": {{}},
-  "circle_data": null,
-  "measurements": [{{"label": "length", "value": "8 cm", "type": "side"}}, {{"label": "width", "value": "5 cm", "type": "side"}}]}}
+  "angles": {{}}, "circle_data": null, "net_cells": null, "cell_labels": {{}},
+  "measurements": [{{"label": "length", "value": "8 cm", "type": "side"}},
+                   {{"label": "width", "value": "5 cm", "type": "side"}}]}}
 
 Circle with radius 7cm:
 {{"has_visual": true, "type": "geometry", "shape": "circle",
   "description": "Circle with radius 7 cm",
-  "vertices": null,
-  "angles": {{}},
-  "circle_data": {{"cx": 100, "cy": 100, "radius": 70, "radius_label": "7 cm", "diameter_label": null}},
+  "vertices": null, "angles": {{}}, "net_cells": null, "cell_labels": {{}},
+  "circle_data": {{"cx": 100, "cy": 100, "radius": 70,
+                  "radius_label": "7 cm", "diameter_label": null}},
   "measurements": [{{"label": "radius", "value": "7 cm", "type": "radius"}}]}}
 
 Angle of 120°:
@@ -84,17 +107,42 @@ Angle of 120°:
   "description": "Angle of 120°",
   "vertices": {{"O": [50, 80], "A": [0, 80], "B": [100, 20]}},
   "angles": {{"O": "120°"}},
-  "circle_data": null,
+  "circle_data": null, "net_cells": null, "cell_labels": {{}},
   "measurements": [{{"label": "∠AOB", "value": "120°", "type": "angle"}}]}}
 
-RULES for vertices:
-- Place coordinates inside a 0–200 (x) by 0–160 (y) bounding box
-- Right angles should be at [0,0] or a corner
-- Always include the "description" field as a plain-English fallback
-- If you cannot determine exact proportional coordinates, set "vertices": null
-  (the frontend will fall back to the text description)
+━━ COMPOUND / L-SHAPED / T-SHAPED POLYGON ━━
+For irregular rectilinear figures, use "polygon" shape with 6+ vertices listed in ORDER:
+L-shaped figure (6 cm × 8 cm with a 2 cm × 3 cm notch cut from top-right):
+{{"has_visual": true, "type": "geometry", "shape": "polygon",
+  "description": "L-shaped figure",
+  "vertices": {{"A": [0, 0], "B": [120, 0], "C": [120, 60],
+               "D": [60, 60], "E": [60, 130], "F": [0, 130]}},
+  "angles": {{}}, "circle_data": null, "net_cells": null, "cell_labels": {{}},
+  "measurements": [{{"label": "AB", "value": "6 cm", "type": "side"}},
+                   {{"label": "AF", "value": "8 cm", "type": "side"}}]}}
 
-For anything else you cannot reconstruct:
+━━ CUBE NET (unfolded cube showing 6 connected square faces) ━━
+Use this when the question involves drawing, constructing, or examining a net of a cube/solid.
+{{"has_visual": true, "type": "geometry", "shape": "cube_net",
+  "description": "Net of a cube — cross shape with 6 square faces",
+  "vertices": null, "angles": {{}}, "circle_data": null,
+  "net_cells": [[0, 1], [1, 0], [1, 1], [1, 2], [1, 3], [2, 1]],
+  "cell_labels": {{"0,1": "top", "1,0": "left", "1,1": "front",
+                  "1,2": "right", "1,3": "back", "2,1": "bottom"}},
+  "measurements": []}}
+Notes on net_cells:
+  - Each [row, col] pair identifies one square in a 2-D grid.
+  - The cross-shaped net above is the most common. Other valid 6-cell arrangements also work.
+  - For a cuboid net, use the same format but cells may form an elongated cross.
+  - If you cannot determine the exact net shape, use the standard cross above.
+
+RULES:
+- Always include the "description" field as a plain-English fallback.
+- If coordinates cannot be determined, set "vertices": null (frontend falls back to description).
+- Use "axes" type (not "geometry") whenever the question involves a coordinate grid.
+- Use "cube_net" shape (not "page_image") whenever a net of a solid is needed.
+
+For anything else you cannot reconstruct into the schemas above:
 {{"has_visual": true, "type": "page_image", "description": "brief description of what the visual shows"}}
 
 Return ONLY valid JSON. No explanation.
@@ -127,6 +175,10 @@ def _normalise_vertices(vertices: dict) -> dict:
         }
     except Exception:
         return vertices
+
+
+# Shapes that use their own coordinate system — do NOT run vertex normalisation
+_SKIP_NORMALISE_SHAPES = {"cube_net"}
 
 
 
@@ -193,7 +245,13 @@ def extract_visual_for_exercise(
             return {}
         result.pop("has_visual", None)
         # Normalise geometry vertex coordinates to fit SVG viewport
-        if result.get("type") == "geometry" and result.get("vertices"):
+        # Skip shapes that use their own grid coordinate system
+        shape = result.get("shape", "")
+        if (
+            result.get("type") == "geometry"
+            and result.get("vertices")
+            and shape not in _SKIP_NORMALISE_SHAPES
+        ):
             result["vertices"] = _normalise_vertices(result["vertices"])
         return result
 
@@ -213,10 +271,22 @@ def _text_only_visual_detection(db, exercise_prompt: str, subject: str, grade: i
         prompt = VISUAL_EXTRACT_PROMPT.format(
             grade=grade, subject=subject, exercise_text=exercise_prompt
         )
-        result = call_llm_json(db, [{"role": "user", "content": prompt + "\n\n(No image available — infer from text only.)"}], max_tokens=400)
+        result = call_llm_json(
+            db,
+            [{"role": "user", "content": prompt + "\n\n(No image available — infer from text only.)"}],
+            max_tokens=700,
+        )
         if not result.get("has_visual", False):
             return {}
         result.pop("has_visual", None)
+        # Normalise vertices for text-only path too
+        shape = result.get("shape", "")
+        if (
+            result.get("type") == "geometry"
+            and result.get("vertices")
+            and shape not in _SKIP_NORMALISE_SHAPES
+        ):
+            result["vertices"] = _normalise_vertices(result["vertices"])
         return result
     except Exception as e:
         logger.warning(f"Text-only visual detection failed: {e}")

@@ -42,7 +42,10 @@ export default function AssignmentBuilder() {
   // Adaptive difficulty: recommendation for selected chapter
   const [difficultyRec, setDifficultyRec] = useState<{
     recommended_difficulty: string; has_data: boolean;
-    signals: { accuracy: number | null; caution: boolean }
+    reason: string | null;
+    cautions: string[];
+    signals: { avg_accuracy: number | null; avg_hints_per_q: number | null;
+               stability: number | null; readiness: number | null }
   } | null>(null)
 
   useEffect(() => {
@@ -182,6 +185,32 @@ export default function AssignmentBuilder() {
               </div>
             )}
           </div>
+
+          {/* Adaptive difficulty recommendation panel */}
+          {selectedChapter && difficultyRec?.has_data && (
+            <div className="card bg-teal-50 border border-teal-100 p-4 mb-0">
+              <div className="flex items-start gap-3">
+                <span className="text-xl shrink-0">📊</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-teal-800">
+                    Suggested difficulty: <span className="capitalize">{difficultyRec.recommended_difficulty}</span>
+                  </p>
+                  {difficultyRec.reason && (
+                    <p className="text-xs text-teal-700 mt-0.5">{difficultyRec.reason}</p>
+                  )}
+                  {difficultyRec.cautions.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {difficultyRec.cautions.map((c, i) => (
+                        <p key={i} className="text-xs text-amber-700 flex items-start gap-1">
+                          <span className="shrink-0">⚠️</span>{c}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Step 2: Questions */}
           {selectedChapter && (

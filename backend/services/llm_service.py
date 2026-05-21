@@ -167,7 +167,37 @@ Return ONLY valid JSON:
     }
   ]
 }
+
+CRITICAL RULES FOR VISUAL AND GEOMETRY QUESTIONS:
+
+1. NEVER generate "which of the following" or "identify from options" questions that require
+   the student to see labelled diagrams (A, B, C, D) that you cannot embed in the text.
+   These are unrenderable and the student will have nothing to select from.
+   Examples of BANNED question forms:
+   ✗ "Which of the following figures is a net of a cube?"
+   ✗ "Which of the following shapes is a quadrilateral?"
+   ✗ "Identify the correct triangle from options A, B, C, D."
+
+2. For topics involving NETS OF SOLIDS (cube, cuboid, cylinder, cone, pyramid):
+   ✓ DO ask: "Draw two different nets of a cube and label all 6 faces."
+   ✓ DO ask: "How many edges, faces, and vertices does a cuboid have?"
+   ✓ DO ask: "A cube has side 5 cm. Calculate its surface area using the net method."
+   ✓ DO ask: "Explain why a cross-shaped flat figure with 6 equal squares can fold into a cube."
+   ✗ NEVER ask: "Which of the following is a net of a cube?"
+
+3. For topics involving IDENTIFYING SHAPES from options:
+   ✓ DO ask: "Name three properties that make a quadrilateral a parallelogram."
+   ✓ DO ask: "Draw a scalene triangle with angles 40°, 60°, and 80°. Label all sides and angles."
+   ✗ NEVER ask: "Which of the following is a scalene triangle?" (without drawable options)
+
+4. Every exercise must be FULLY ANSWERABLE from the text alone without seeing any diagram
+   options. If a geometry question requires a diagram to set up the problem (e.g., a labelled
+   triangle with measurements), describe the figure completely in words within the prompt.
+
+5. For coordinate geometry, always state the coordinates explicitly:
+   ✓ "Plot points A(2,3), B(-1,4), C(0,-2) on a coordinate plane and find the area of triangle ABC."
 """
+
 
 
 def generate_exercises(

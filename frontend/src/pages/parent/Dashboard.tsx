@@ -4,7 +4,7 @@ import { useAuthStore } from '../../store/authStore'
 import Layout from '../../components/Layout'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import api from '../../api/client'
-import { BookOpen, Plus, CheckCircle2, Clock, AlertCircle, ChevronDown, ChevronRight, User } from 'lucide-react'
+import { BookOpen, Plus, CheckCircle2, Clock, AlertCircle, ChevronDown, ChevronRight, User, TrendingUp } from 'lucide-react'
 
 interface Assignment {
   id: number; title: string | null; status: string
@@ -34,11 +34,18 @@ interface AssignmentDetail {
 const DIFF_COLOR: Record<string, string> = {
   easy: 'bg-green-100 text-green-700', medium: 'bg-amber-100 text-amber-700', hard: 'bg-red-100 text-red-700'
 }
+const DIFF_ICON: Record<string, string> = { easy: '🟢', medium: '🟡', hard: '🔴' }
 const STATUS_COLOR: Record<string, string> = {
   correct: 'text-green-600', wrong: 'text-red-500', partial: 'text-amber-500', skipped: 'text-gray-400'
 }
 const STATUS_LABEL: Record<string, string> = {
   correct: '✓ Correct', wrong: '✗ Wrong', partial: '½ Partial', skipped: '— Skipped'
+}
+
+interface DifficultyInsight {
+  chapter_id: number; chapter_title: string
+  recommended_difficulty: string; reason: string | null
+  cautions: string[]; has_data: boolean
 }
 
 export default function ParentDashboard() {
@@ -50,10 +57,29 @@ export default function ParentDashboard() {
   const [details, setDetails] = useState<Record<number, AssignmentDetail>>({})
   const [loadingDetail, setLoadingDetail] = useState<number | null>(null)
   const [expandedSub, setExpandedSub] = useState<number | null>(null)
+  const [insights, setInsights] = useState<DifficultyInsight[]>([])
 
   useEffect(() => {
     if (!isParent()) { navigate('/parent/login'); return }
     api.get('/assignments').then((r) => setAssignments(r.data)).finally(() => setLoading(false))
+    // Load difficulty insights — get all chapters then fetch recommendations
+    api.get('/chapters').then(async (r) => {
+      const approved = r.data.filter((c: any) => c.approved)
+      const results = await Promise.all(
+        approved.map(async (ch: any) => {
+          try {
+            const rec = await api.get(`/chapters/${ch.id}/difficulty-recommendation`)
+            if (!rec.data.has_data) return null
+            return {
+              chapter_id: ch.id,
+              chapter_title: ch.title,
+              ...rec.data,
+            } as DifficultyInsight
+          } catch { return null }
+        })
+      )
+      setInsights(results.filter(Boolean) as DifficultyInsight[])
+    })
   }, [isParent, navigate])
 
   const loadDetail = async (id: number) => {
@@ -103,7 +129,45 @@ export default function ParentDashboard() {
         </div>
       )}
 
-      {/* FIX #2: Assignments with full detail */}
+      {/* Difficulty Insights (R3) — shown when adaptive data exists */}
+      {insights.length > 0 && (
+        <div className="card mb-6">
+          <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2 mb-4">
+            <TrendingUp size={18} className="text-teal-500" />
+            Difficulty Insights
+          </h2>
+          <div className="space-y-3">
+            {insights.map((ins) => (
+              <div key={ins.chapter_id}
+                className="flex items-start gap-3 bg-gray-50 rounded-xl p-3">
+                <span className="text-lg shrink-0 mt-0.5">{DIFF_ICON[ins.recommended_difficulty] ?? '⚪'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-800">{ins.chapter_title}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${DIFF_COLOR[ins.recommended_difficulty] ?? 'bg-gray-100 text-gray-500'}`}>
+                      Recommended: {ins.recommended_difficulty}
+                    </span>
+                  </div>
+                  {ins.reason && (
+                    <p className="text-xs text-gray-500 mt-0.5">{ins.reason}</p>
+                  )}
+                  {ins.cautions.length > 0 && (
+                    <div className="mt-1 space-y-0.5">
+                      {ins.cautions.map((c, i) => (
+                        <p key={i} className="text-xs text-amber-600 flex items-start gap-1">
+                          <span className="shrink-0">⚠️</span>{c}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Assignments with full detail */}
       <h2 className="text-lg font-semibold text-gray-700 mb-3">All Assignments</h2>
       {activeAssignments.length === 0 ? (
         <div className="card text-center text-gray-400 py-10">
