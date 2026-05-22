@@ -1,49 +1,64 @@
-# Python
-venv/
+```
+# Dependencies
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.venv/
+venv/
+env/
 .env
+.env.local
+.env.*
 
-# Data (never commit user data)
-data/
-*.db
+# Build artifacts
+dist/
+build/
+*.egg-info/
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
+# Coverage
+.coverage
+htmlcov/
+coverage/
 
-# Virtual environment
-venv/
+# Testing
+.pytest_cache/
+.mypy_cache/
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Environment secrets
-.env
+# Compiled
+*.so
+*.o
+*.a
+*.obj
+*.exe
+*.dll
+*.dylib
 
-# Database (local data)
-data/mathtutor.db
-
-# Image assets (500MB - stored locally)
-data/page_images/
-data/submissions/
-data/cache/
-
-# Node modules (frontend)
-frontend/node_modules/
-frontend/dist/
-
-# OS files
-.DS_Store
-Thumbs.db
+# Compressed
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.rar
+*.7z
+```

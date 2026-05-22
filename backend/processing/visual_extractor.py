@@ -136,6 +136,28 @@ Notes on net_cells:
   - For a cuboid net, use the same format but cells may form an elongated cross.
   - If you cannot determine the exact net shape, use the standard cross above.
 
+━━ MCQ OPTIONS — four visual choices for multiple-choice questions ━━
+Use this when the exercise is a multiple-choice question where each option (A, B, C, D) is a visual diagram.
+The "options" array contains 4 items, each with a "label" (A-D) and a "visual" sub-object.
+The "correct_option" field indicates which label is correct.
+Example for "Which of these is a net of a cube?":
+{{"has_visual": true, "type": "mcq_options",
+  "options": [
+    {{"label": "A", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,1],[1,0],[1,1],[1,2],[1,3],[2,1]], "description": "Cross-shaped net"}}}},
+    {{"label": "B", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,0],[0,1],[1,1],[2,1],[3,1],[3,2]], "description": "S-shaped (invalid)"}}}},
+    {{"label": "C", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,0],[1,0],[1,1],[1,2],[2,2],[3,2]], "description": "L-shaped net"}}}},
+    {{"label": "D", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,1],[1,0],[1,1],[1,2],[2,1],[2,2]], "description": "Staircase (invalid)"}}}}
+  ],
+  "correct_option": "A"
+}}
+Each option's visual can be any valid visual type (geometry, axes, table, etc.).
+The frontend will render each option's visual in a 2x2 grid with clickable cards.
+RULES:
+- Always include exactly 4 options with labels "A", "B", "C", "D".
+- Set "correct_option" to the letter of the correct answer.
+- Each option's "visual" field should be a complete visual schema (e.g., full geometry object).
+- Use this type ONLY for genuine multiple-choice questions with visual options.
+
 RULES:
 - Always include the "description" field as a plain-English fallback.
 - If coordinates cannot be determined, set "vertices": null (frontend falls back to description).
@@ -179,6 +201,11 @@ def _normalise_vertices(vertices: dict) -> dict:
 
 # Shapes that use their own coordinate system — do NOT run vertex normalisation
 _SKIP_NORMALISE_SHAPES = {"cube_net"}
+
+
+def _skip_mcq_normalise(vis: dict) -> bool:
+    """Check if this is an mcq_options visual — skip normalisation for all sub-visuals."""
+    return vis.get("type") == "mcq_options"
 
 
 
@@ -253,6 +280,9 @@ def extract_visual_for_exercise(
             and shape not in _SKIP_NORMALISE_SHAPES
         ):
             result["vertices"] = _normalise_vertices(result["vertices"])
+        # For mcq_options, skip normalisation for all sub-visuals
+        if _skip_mcq_normalise(result):
+            pass  # No normalisation needed — sub-visuals have their own coords
         return result
 
     except Exception as e:
