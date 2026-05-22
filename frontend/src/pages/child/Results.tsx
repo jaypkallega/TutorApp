@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import api from '../../api/client'
 import { CheckCircle2, XCircle, AlertCircle, RotateCcw, Home, AlertTriangle, Info } from 'lucide-react'
+import VisualDisplay from '../../components/VisualDisplay'
 
 interface Misconception { topic: string; diagnosis: string; remedy: string }
 
@@ -16,6 +17,7 @@ interface QuestionResult {
   requires_parent_review: boolean
   misconceptions: Misconception[]
   hints_used?: number
+  visual_data?: any; visual_type?: string
 }
 
 interface Evaluation {
@@ -184,7 +186,24 @@ export default function Results() {
               <div className="flex items-start gap-3">
                 {config.icon}
                 <div className="flex-1 space-y-2">
-                  {qr.ocr_text && (
+                  {/* MCQ visual answer display */}
+                  {qr.visual_type === 'mcq_options' && qr.visual_data && (() => {
+                    let mcqData: any = null
+                    try {
+                      mcqData = typeof qr.visual_data === 'string' ? JSON.parse(qr.visual_data) : qr.visual_data
+                    } catch {}
+                    if (mcqData && mcqData.type === 'mcq_options') {
+                      return (
+                        <div className="mb-3">
+                          <VisualDisplay visualData={mcqData} selectedOption={qr.ocr_text || undefined} />
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
+
+                  {/* Text answer for non-MCQ or fallback */}
+                  {qr.ocr_text && qr.visual_type !== 'mcq_options' && (
                     <div className="p-2 bg-white rounded-lg border text-sm text-gray-600">
                       <span className="text-xs text-gray-400 block mb-0.5 font-medium">Your answer:</span>
                       <span className="font-mono">{qr.ocr_text}</span>

@@ -89,7 +89,20 @@ def evaluate_single_answer(
     eval_result = None
     method = "unknown"
 
-    if answer_type in ("numeric", "fraction", "algebraic", "equation", "expression_set"):
+    if answer_type == "mcq":
+        # Multiple-choice: simple letter comparison
+        correct_opt = structured.get("correct_option", "").strip().upper()
+        student_opt = student_answer.strip().upper()
+        correct = (student_opt == correct_opt)
+        eval_result = {
+            "correct": correct,
+            "confidence": 0.99,  # deterministic — no ambiguity
+            "status": "correct" if correct else "wrong",
+            "method": "mcq_exact",
+        }
+        method = "mcq_exact"
+
+    elif answer_type in ("numeric", "fraction", "algebraic", "equation", "expression_set"):
         eval_result = evaluate_math_answer(student_answer, structured)
         method = eval_result.get("method", "sympy")
 

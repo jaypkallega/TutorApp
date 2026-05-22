@@ -196,6 +196,14 @@ CRITICAL RULES FOR VISUAL AND GEOMETRY QUESTIONS:
 
 5. For coordinate geometry, always state the coordinates explicitly:
    ✓ "Plot points A(2,3), B(-1,4), C(0,-2) on a coordinate plane and find the area of triangle ABC."
+
+EXCEPTION — Visual MCQ with proper option rendering:
+If the visual extractor can produce an "mcq_options" type with four rendered option cards,
+then multiple-choice questions ARE allowed for nets/solids identification.
+In this case, the LLM will generate visual_data with type="mcq_options" containing 4 options.
+The frontend will render clickable option cards (A, B, C, D) with visual diagrams.
+Example allowed format when mcq_options is supported:
+✓ "Which of these is a valid net of a cube?" — with visual_data containing 4 cube_net options.
 """
 
 
@@ -389,6 +397,11 @@ For multi-step working problems:
 For science/conceptual answers:
 {{"answer_type": "conceptual", "canonical_value": "brief answer", "rubric": {{"required_concepts": [{{"keyword": "photosynthesis", "weight": 2, "synonyms": ["food making"]}}], "optional_concepts": [], "min_required_score": 3, "max_score": 4}}, "sympy_expr": null, "tolerance": null}}
 
+For visual MCQ questions (multiple-choice with visual options A/B/C/D):
+{{"answer_type": "mcq", "correct_option": "A"}}
+— Use this when exercise_type is "visual_mcq" or the question has visual_data.type="mcq_options".
+— Extract correct_option from visual_data.correct_option ("A", "B", "C", or "D").
+
 Rules:
 - sympy_expr must be parseable by Python SymPy (use * for multiplication, ** for power)
 - For equations, sympy_expr is the expression equal to zero (move everything to LHS)
@@ -404,11 +417,24 @@ def generate_structured_answer(
     subject: str = "Mathematics",
     exercise_type: str = "calculation",
     grade: int = 8,
+    visual_data: dict | None = None,  # NEW: for MCQ extraction
 ) -> dict:
     """
     Generate a structured answer schema for deterministic evaluation.
     Called once at exercise creation — never at evaluation time.
+    
+    For visual_mcq exercises, extracts correct_option from visual_data instead of calling LLM.
     """
+    # Handle MCQ type directly from visual_data
+    if exercise_type == "visual_mcq" and visual_data:
+        try:
+            vd = visual_data if isinstance(visual_data, dict) else json.loads(visual_data)
+            if vd.get("type") == "mcq_options":
+                correct_opt = vd.get("correct_option", "A").strip().upper()
+                return {"answer_type": "mcq", "correct_option": correct_opt}
+        except Exception:
+            pass  # Fall through to LLM if parsing fails
+    
     try:
         messages = [
             {

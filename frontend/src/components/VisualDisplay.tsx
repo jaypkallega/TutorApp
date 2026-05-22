@@ -64,8 +64,19 @@ interface PageImageData {
   type: 'page_image'; page: number; textbook_id: number; description?: string
 }
 
+interface MCQOption {
+  label: string
+  visual: object
+}
+
+interface MCQOptionsData {
+  type: 'mcq_options'
+  options: MCQOption[]
+  correct_option?: string
+}
+
 type VisualData = TableData | NumberLineData | BarGraphData | PieChartData
-                | GeometryData | AxesData | PageImageData
+                | GeometryData | AxesData | PageImageData | MCQOptionsData
 
 // ── Shared colours ───────────────────────────────────────────────────────────
 const GEO_STROKE  = '#1e3a5f'
@@ -579,6 +590,46 @@ function GeometryVisual({ data }: { data: GeometryData }) {
   )
 }
 
+// ── MCQ OPTIONS GRID (read-only for Results page) ─────────────────────────────
+interface MCQOptionsVisualProps {
+  data: MCQOptionsData
+  selectedOption?: string  // Student's selected option (for highlighting)
+}
+
+function MCQOptionsVisual({ data, selectedOption }: MCQOptionsVisualProps) {
+  const options = data.options || []
+  const correctOpt = (data.correct_option || '').toUpperCase()
+  
+  return (
+    <div className="grid grid-cols-2 gap-3 my-3">
+      {options.map((opt, idx) => {
+        const label = opt.label?.toUpperCase() || String.fromCharCode(65 + idx)
+        const isCorrect = label === correctOpt
+        const isSelected = selectedOption && label === selectedOption.toUpperCase()
+        
+        let borderColor = 'border-gray-200'
+        if (isSelected && isCorrect) borderColor = 'border-green-500 ring-2 ring-green-200'
+        else if (isSelected && !isCorrect) borderColor = 'border-red-400 ring-2 ring-red-200'
+        else if (isCorrect) borderColor = 'border-green-400'
+        
+        return (
+          <div key={idx} className={`relative rounded-xl border-2 ${borderColor} bg-white overflow-hidden`}>
+            {/* Letter badge */}
+            <div className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm z-10
+              ${isSelected ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+              {label}
+            </div>
+            {/* Visual content */}
+            <div className="pt-9 p-2">
+              <VisualDisplay visualData={opt.visual} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── PAGE IMAGE ───────────────────────────────────────────────────────────────
 function PageImageVisual({ data }: { data: PageImageData }) {
   const src = `/api/v1/textbooks/${data.textbook_id}/page/${data.page}`
@@ -594,9 +645,10 @@ function PageImageVisual({ data }: { data: PageImageData }) {
 interface Props {
   visualData: string | object | null
   visualType?: string | null
+  selectedOption?: string  // For MCQ: student's selected option (Results page)
 }
 
-export default function VisualDisplay({ visualData, visualType }: Props) {
+export default function VisualDisplay({ visualData, visualType, selectedOption }: Props) {
   if (!visualData) return null
 
   let data: VisualData
@@ -607,6 +659,15 @@ export default function VisualDisplay({ visualData, visualType }: Props) {
   }
 
   const type = data.type || visualType
+
+  // Handle mcq_options type specially
+  if (type === 'mcq_options') {
+    return (
+      <div className="my-3">
+        <MCQOptionsVisual data={data as MCQOptionsData} selectedOption={selectedOption} />
+      </div>
+    )
+  }
 
   return (
     <div className="my-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
