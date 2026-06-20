@@ -2,7 +2,7 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,6 @@ def list_textbooks(
 
 @router.post("", response_model=TextbookOut)
 async def upload_textbook(
-    background_tasks: BackgroundTasks,
     title: str = Form(...),
     grade: int = Form(default=8),
     subject: str = Form(default="Mathematics"),
@@ -65,13 +64,11 @@ async def upload_textbook(
     db.commit()
     db.refresh(textbook)
 
-    # Start background processing
+    # Enqueue for serial background processing (one at a time — avoids SQLite lock contention)
     if upload_type == "pdf":
-        from backend.processing.pdf_parser import process_textbook
+        from backend.processing.pdf_parser import enqueue_textbook
         page_img_dir = str(PAGE_IMAGES_DIR / f"textbook_{textbook.id}")
-        background_tasks.add_task(
-            process_textbook, db, textbook.id, str(dest_path), page_img_dir
-        )
+        enqueue_textbook(textbook.id, str(dest_path), page_img_dir)
 
     return textbook
 
@@ -122,3 +119,30 @@ def delete_textbook(
     db.delete(tb)
     db.commit()
     return {"message": "Textbook deleted"}
+
+
+@router.patch("/{textbook_id}", response_model=TextbookOut)
+def update_textbook(
+    textbook_id: int,
+    req: dict,
+    current_user: User = Depends(require_parent),
+    db: Session = Depends(get_db),
+):
+    """Update textbook metadata (title, grade, subject). Does not re-process the file."""
+    tb = db.query(Textbook).filter(Textbook.id == textbook_id).first()
+    if not tb:
+        raise HTTPException(404, "Textbook not found")
+    if "title" in req:
+        title = str(req["title"]).strip()
+        if not title:
+            raise HTTPException(400, "Title cannot be empty")
+        tb.title = title
+    if "grade" in req:
+        tb.grade = int(req["grade"])
+    if "subject" in req:
+        tb.subject = str(req["subject"])
+    db.commit()
+    db.refresh(tb)
+    return tb
+
+

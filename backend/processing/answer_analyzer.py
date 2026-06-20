@@ -47,7 +47,13 @@ def canvas_json_to_image(canvas_json: str, output_path: str) -> str:
     return output_path
 
 
-def process_submission(db, submission_id: int, exercises: list[dict], show_wrong_reasons: bool = True) -> None:
+def process_submission(
+    db,
+    submission_id: int,
+    exercises: list[dict],
+    show_wrong_reasons: bool = True,
+    draft_answers: dict = None,   # raw answers JSON from draft (for hints_used)
+) -> None:
     from backend.models.submission import Submission
     from backend.models.evaluation import Evaluation
     from backend.services.ocr_service import extract_text_from_image, get_ocr_mode
@@ -116,6 +122,12 @@ def process_submission(db, submission_id: int, exercises: list[dict], show_wrong
                 input_mode=input_mode,
             )
             result["question_index"] = i
+            # Attach hints_used from draft if available
+            if draft_answers:
+                ex_entry = draft_answers.get(str(exercise.get("id", "")), {})
+                result["hints_used"] = ex_entry.get("hints_used", 0)
+            else:
+                result["hints_used"] = 0
             status = result.get("status", "skipped")
             if status == "correct":
                 correct += 1
@@ -154,6 +166,15 @@ def process_submission(db, submission_id: int, exercises: list[dict], show_wrong
         update_status("done")
         session.commit()
         logger.info(f"Submission {submission_id}: {correct}/{len(exercises)} correct, conf={avg_confidence:.2f}")
+
+        # Update adaptive difficulty recommendations for all concepts
+        try:
+            from backend.processing.adaptive import update_all_concept_difficulties
+            sub = session.query(Submission).filter(Submission.id == submission_id).first()
+            if sub:
+                update_all_concept_difficulties(session, sub.child_id)
+        except Exception as ae:
+            logger.warning(f"Adaptive difficulty update failed (non-critical): {ae}")
 
     except Exception as e:
         logger.error(f"Answer analysis failed for submission {submission_id}: {e}", exc_info=True)

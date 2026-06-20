@@ -7,7 +7,7 @@ import VisualDisplay from '../../components/VisualDisplay'
 import api from '../../api/client'
 import {
   ChevronLeft, ChevronRight, PenLine, Type, Camera,
-  CheckCircle2, Send, Save, AlertCircle, Clock
+  CheckCircle2, Send, Save, AlertCircle, Clock, Lightbulb, X
 } from 'lucide-react'
 
 interface Exercise {
@@ -18,6 +18,17 @@ interface AssignmentQuestion {
   id: number; exercise_id: number; ordering: number; exercise: Exercise | null
 }
 type InputMode = 'canvas' | 'text' | 'photo'
+
+// For MCQ exercises
+interface MCQOption {
+  label: string
+  visual: object
+}
+interface MCQVisualData {
+  type: 'mcq_options'
+  options: MCQOption[]
+  correct_option?: string
+}
 
 interface SavedAnswer {
   mode: InputMode
@@ -47,6 +58,9 @@ export default function SolveWorkspace() {
   const [currentQ, setCurrentQ] = useState(0)
   const [loading, setLoading] = useState(true)
   const [inputMode, setInputMode] = useState<InputMode>('canvas')
+  
+  // MCQ-specific state
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
 
   // Draft state
   const [draftId, setDraftId] = useState<number | null>(null)
@@ -63,6 +77,13 @@ export default function SolveWorkspace() {
   const [submitting, setSubmitting] = useState(false)
   const [saveError, setSaveError] = useState('')
 
+  // Hint state
+  const [hintsUsed, setHintsUsed] = useState<Record<string, number>>({})
+  const [hintText, setHintText] = useState<string | null>(null)
+  const [hintLoading, setHintLoading] = useState(false)
+  const [hintError, setHintError] = useState('')
+  const MAX_HINTS = 3
+
   // -------------------------------------------------------------------------
   // Init: load assignment + start/resume draft
   // -------------------------------------------------------------------------
@@ -77,6 +98,13 @@ export default function SolveWorkspace() {
         setDraftId(dRes.data.draft_id)
         setSavedAnswers(dRes.data.answers || {})
         setExerciseOrder(dRes.data.exercise_order || [])
+        // Restore hint counts from server-side draft
+        const restored: Record<string, number> = {}
+        for (const [exId, ans] of Object.entries(dRes.data.answers || {})) {
+          const a = ans as any
+          if (a.hints_used) restored[exId] = a.hints_used
+        }
+        setHintsUsed(restored)
       } catch {
         navigate('/child/home')
       } finally {
@@ -97,6 +125,9 @@ export default function SolveWorkspace() {
     setPhotoFile(null)
     setPhotoName('')
     setSaveError('')
+    setHintText(null)
+    setHintError('')
+    setSelectedOption(null)  // Reset MCQ selection
     // Restore text input if previously saved
     if (exId && savedAnswers[String(exId)]?.mode === 'text') {
       setTextInput(savedAnswers[String(exId)].text_preview || '')
@@ -114,7 +145,19 @@ export default function SolveWorkspace() {
     setSaveError('')
 
     try {
-      if (inputMode === 'text') {
+      // Handle MCQ mode
+      if (exercise && (exercise.visual_type === 'mcq_options' || exercise.exercise_type === 'visual_mcq')) {
+        if (!selectedOption) { setSaveError('Please select an option before saving.'); return }
+        const fd = new FormData()
+        fd.append('exercise_id', String(exId))
+        fd.append('text', selectedOption)  // Store letter as text answer
+        await api.put(`/drafts/${draftId}/text`, fd)
+        setSavedAnswers((prev) => ({
+          ...prev,
+          [String(exId)]: { mode: 'text', saved_at: new Date().toISOString(), text_preview: `Option ${selectedOption}` },
+        }))
+        
+      } else if (inputMode === 'text') {
         if (!textInput.trim()) { setSaveError('Please write something before saving.'); return }
         const fd = new FormData()
         fd.append('exercise_id', String(exId))
@@ -167,6 +210,31 @@ export default function SolveWorkspace() {
       setSaveError(e.response?.data?.detail || 'Save failed. Please try again.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Request a hint
+  // -------------------------------------------------------------------------
+  const requestHint = async () => {
+    if (!draftId || !exId) return
+    const used = hintsUsed[String(exId)] ?? 0
+    if (used >= MAX_HINTS) return
+    setHintLoading(true)
+    setHintError('')
+    try {
+      // Pass current text answer if available
+      const currentAnswer = inputMode === 'text' ? textInput : ''
+      const r = await api.post(`/drafts/${draftId}/hint`, {
+        exercise_id: exId,
+        current_answer: currentAnswer,
+      })
+      setHintText(r.data.hint)
+      setHintsUsed(prev => ({ ...prev, [String(exId)]: r.data.hints_used }))
+    } catch (e: any) {
+      setHintError(e.response?.data?.detail || 'Could not get a hint. Please try again.')
+    } finally {
+      setHintLoading(false)
     }
   }
 
@@ -263,6 +331,54 @@ export default function SolveWorkspace() {
         )}
       </div>
 
+      {/* ── HINT SYSTEM ── */}
+      {(() => {
+        const used = hintsUsed[String(exId)] ?? 0
+        const remaining = MAX_HINTS - used
+        const exhausted = used >= MAX_HINTS
+        return (
+          <div className="mb-4">
+            {/* Hint button */}
+            {!exhausted && (
+              <button
+                id={`hint-btn-q${currentQ}`}
+                onClick={requestHint}
+                disabled={hintLoading}
+                className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-all"
+              >
+                {hintLoading
+                  ? <><div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /> Getting hint…</>
+                  : <><Lightbulb size={15} />
+                    {used === 0 ? 'Need a hint?' : used === MAX_HINTS - 1 ? '⚠️ Last hint' : 'Another hint'}
+                    <span className="text-xs text-amber-500 font-normal">({remaining} of {MAX_HINTS} left)</span>
+                  </>}
+              </button>
+            )}
+            {exhausted && (
+              <p className="text-xs text-gray-400 flex items-center gap-1">
+                <Lightbulb size={12} /> No hints remaining for this question.
+              </p>
+            )}
+
+            {/* Hint callout */}
+            {hintText && (
+              <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <Lightbulb size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="flex-1 text-sm text-amber-800 leading-relaxed">{hintText}</p>
+                <button onClick={() => setHintText(null)} className="text-amber-400 hover:text-amber-600 shrink-0">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Hint error */}
+            {hintError && (
+              <p className="mt-1 text-xs text-red-500">{hintError}</p>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Already-saved banner */}
       {currentSaved && (
         <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-4">
@@ -281,20 +397,73 @@ export default function SolveWorkspace() {
         </div>
       )}
 
-      {/* Input mode selector */}
-      <div className="flex gap-2 mb-4">
-        {([
-          { mode: 'canvas' as InputMode, icon: <PenLine size={16} />, label: 'Draw' },
-          { mode: 'text' as InputMode, icon: <Type size={16} />, label: 'Type' },
-          { mode: 'photo' as InputMode, icon: <Camera size={16} />, label: 'Photo' },
-        ]).map(({ mode, icon, label }) => (
-          <button key={mode} onClick={() => setInputMode(mode)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-              inputMode === mode ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {icon} {label}
-          </button>
-        ))}
-      </div>
+      {/* MCQ Option Cards — replaces input mode selector for visual_mcq */}
+      {(exercise.visual_type === 'mcq_options' || exercise.exercise_type === 'visual_mcq') && (() => {
+        let mcqData: MCQVisualData | null = null
+        try {
+          mcqData = exercise.visual_data 
+            ? (typeof exercise.visual_data === 'string' ? JSON.parse(exercise.visual_data) : exercise.visual_data)
+            : null
+        } catch {}
+        
+        if (!mcqData || mcqData.type !== 'mcq_options') return null
+        
+        const isSaved = !!currentSaved
+        return (
+          <div className="mb-4">
+            <p className="text-sm text-gray-500 mb-2">Select the correct option:</p>
+            <div className="grid grid-cols-2 gap-3">
+              {mcqData.options.map((opt, idx) => {
+                const label = opt.label?.toUpperCase() || String.fromCharCode(65 + idx)
+                const isSelected = selectedOption === label
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => !isSaved && setSelectedOption(label)}
+                    disabled={isSaved}
+                    className={`relative p-3 rounded-xl border-2 transition-all text-left ${
+                      isSelected 
+                        ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200' 
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isSaved ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs
+                      ${isSelected ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                      {label}
+                    </div>
+                    <div className="pt-7">
+                      {/* Compact visual — no Figure header inside a small card */}
+                      <VisualDisplay visualData={opt.visual} />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            {isSaved && (
+              <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
+                <CheckCircle2 size={12} /> You selected option {selectedOption}
+              </p>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Input mode selector — hidden for MCQ exercises */}
+      {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
+        <div className="flex gap-2 mb-4">
+          {([
+            { mode: 'canvas' as InputMode, icon: <PenLine size={16} />, label: 'Draw' },
+            { mode: 'text' as InputMode, icon: <Type size={16} />, label: 'Type' },
+            { mode: 'photo' as InputMode, icon: <Camera size={16} />, label: 'Photo' },
+          ]).map(({ mode, icon, label }) => (
+            <button key={mode} onClick={() => setInputMode(mode)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                inputMode === mode ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Answer area */}
       <div className="mb-4">
@@ -336,16 +505,81 @@ export default function SolveWorkspace() {
                 </div>
               )}
             </div>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) { setPhotoFile(f); setPhotoName(f.name) }
-              }}
-            />
+            <input ref={fileRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) { setPhotoFile(f); setPhotoName(f.name) } }} />
           </div>
         )}
       </div>
+
+      {/* Input mode selector — hidden for MCQ exercises */}
+      {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
+        <div className="flex gap-2 mb-4">
+          {([
+            { mode: 'canvas' as InputMode, icon: <PenLine size={16} />, label: 'Draw' },
+            { mode: 'text' as InputMode, icon: <Type size={16} />, label: 'Type' },
+            { mode: 'photo' as InputMode, icon: <Camera size={16} />, label: 'Photo' },
+          ]).map(({ mode, icon, label }) => (
+            <button key={mode} onClick={() => setInputMode(mode)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                inputMode === mode ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Answer area — hidden for MCQ (handled by option cards above) */}
+      {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
+        <div className="mb-4">
+          {inputMode === 'canvas' && (
+            // key resets canvas for each question
+            <StylusCanvas
+              key={`canvas-q${currentQ}`}
+              ref={canvasRef}
+              width={900} height={320} strokeWidth={3}
+            />
+          )}
+
+          {inputMode === 'text' && (
+            <textarea
+              className="input-field resize-none text-base" rows={6}
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Type your answer here. Show your working step by step."
+            />
+          )}
+
+          {inputMode === 'photo' && (
+            <div>
+              <div
+                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-primary-300 transition-all"
+                onClick={() => fileRef.current?.click()}
+              >
+                {photoName ? (
+                  <div>
+                    <div className="text-3xl mb-2">📷</div>
+                    <p className="font-medium text-gray-700">{photoName}</p>
+                    <p className="text-sm text-gray-400 mt-1">Tap to change</p>
+                  </div>
+                ) : (
+                  <div>
+                    <Camera size={36} className="mx-auto mb-2 text-gray-300" />
+                    <p className="text-gray-500 font-medium">Take a photo or choose from gallery</p>
+                    <p className="text-xs text-gray-400 mt-1">Works with iPad camera & Apple Pencil</p>
+                  </div>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) { setPhotoFile(f); setPhotoName(f.name) }
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Save error */}
       {saveError && (

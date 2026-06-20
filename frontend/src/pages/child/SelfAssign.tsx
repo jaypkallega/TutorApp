@@ -25,19 +25,23 @@ export default function SelfAssign() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const [chapters, setChapters] = useState<Chapter[]>([])
-  const [selectedChapter, setSelectedChapter] = useState<number | null>(null)
+  const [selectedChapters, setSelectedChapters] = useState<Set<number>>(new Set())
   const [exercises, setExercises] = useState<Exercise[]>([])
+  const [exerciseChapterMap, setExerciseChapterMap] = useState<Record<number, number>>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [loadingEx, setLoadingEx] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [title, setTitle] = useState('')
-  // Fix 2: count + difficulty for generation
   const [genCount, setGenCount] = useState(5)
   const [genDiff, setGenDiff] = useState('medium')
-  // Fix 3: collapsible book groups
   const [collapsedBooks, setCollapsedBooks] = useState<Set<number>>(new Set())
+  const [lastClickedChapter, setLastClickedChapter] = useState<number | null>(null)
+  const [difficultyRec, setDifficultyRec] = useState<{
+    recommended_difficulty: string; has_data: boolean;
+    reason: string | null; cautions: string[];
+  } | null>(null)
 
   useEffect(() => {
     api.get('/chapters')
@@ -57,31 +61,60 @@ export default function SelfAssign() {
     const next = new Set(prev); next.has(tbId) ? next.delete(tbId) : next.add(tbId); return next
   })
 
-  const selectChapter = async (id: number) => {
-    setSelectedChapter(id)
-    setSelectedIds(new Set())
-    setLoadingEx(true)
-    try {
-      const r = await api.get(`/exercises?chapter_id=${id}`)
-      setExercises(r.data)
-    } finally { setLoadingEx(false) }
+  const selectChapter = (id: number) => {
+    setSelectedChapters((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+    setLastClickedChapter(id)
+    setDifficultyRec(null)
+    api.get(`/chapters/${id}/difficulty-recommendation`).then((r) => {
+      if (r.data?.has_data) {
+        setDifficultyRec(r.data)
+        setGenDiff(r.data.recommended_difficulty)
+      }
+    }).catch(() => null)
   }
 
+  // Fetch exercises whenever selected chapters change
+  useEffect(() => {
+    if (selectedChapters.size === 0) { setExercises([]); setExerciseChapterMap({}); setSelectedIds(new Set()); return }
+    setLoadingEx(true)
+    const ids = Array.from(selectedChapters)
+    Promise.all(ids.map((cid) => api.get(`/exercises?chapter_id=${cid}`).then((r) => ({ cid, exs: r.data as Exercise[] }))))
+      .then((results) => {
+        const allEx: Exercise[] = []
+        const chMap: Record<number, number> = {}
+        for (const { cid, exs } of results) {
+          for (const ex of exs) {
+            if (!chMap[ex.id]) { allEx.push(ex); chMap[ex.id] = cid }  // deduplicate
+          }
+        }
+        setExercises(allEx)
+        setExerciseChapterMap(chMap)
+        setSelectedIds(new Set())
+      })
+      .finally(() => setLoadingEx(false))
+  }, [selectedChapters])
+
   const generateMore = async () => {
-    if (!selectedChapter) return
+    if (selectedChapters.size === 0) return
+    const chId = lastClickedChapter ?? Array.from(selectedChapters)[0]
     setGenerating(true)
     try {
-      // Fix 1: child is now allowed to call this endpoint
       const r = await api.post('/exercises/generate', {
-        chapter_id: selectedChapter,
-        count: genCount,      // Fix 2: use selected count
-        difficulty: genDiff,
+        chapter_id: chId, count: genCount, difficulty: genDiff,
       })
-      // Fix 4: avoid adding duplicate exercises
       setExercises((prev) => {
-        const existingIds = new Set(prev.map(e => e.id))
-        const newOnes = r.data.filter((e: Exercise) => !existingIds.has(e.id))
+        const existingIds = new Set(prev.map((e) => e.id))
+        const newOnes = (r.data as Exercise[]).filter((e) => !existingIds.has(e.id))
         return [...prev, ...newOnes]
+      })
+      setExerciseChapterMap((prev) => {
+        const next = { ...prev }
+        for (const ex of r.data as Exercise[]) next[ex.id] = chId
+        return next
       })
     } catch (e: any) {
       alert(e.response?.data?.detail || 'Generation failed. Check LLM settings.')
@@ -94,13 +127,13 @@ export default function SelfAssign() {
 
   const create = async () => {
     if (selectedIds.size === 0) { alert('Select at least one question'); return }
-    if (!selectedChapter) return
+    if (selectedChapters.size === 0) return
+    const primaryChapterId = lastClickedChapter ?? Array.from(selectedChapters)[0]
     setSaving(true)
     try {
-      // Fix 4: deduplicate selectedIds before sending
       const uniqueIds = Array.from(new Set(Array.from(selectedIds)))
       const r = await api.post('/assignments', {
-        chapter_id: selectedChapter,
+        chapter_id: primaryChapterId,
         title: title || `My Practice — ${new Date().toLocaleDateString()}`,
         exercise_ids: uniqueIds,
         explanation_policy: 'after_attempt',
@@ -115,7 +148,9 @@ export default function SelfAssign() {
 
   if (loading) return <Layout title="Practice Yourself"><LoadingSpinner /></Layout>
 
-  const selectedChapterObj = chapters.find(c => c.id === selectedChapter)
+  const selectedChaptersArr = Array.from(selectedChapters)
+    .map((id) => chapters.find((c) => c.id === id))
+    .filter(Boolean) as Chapter[]
 
   return (
     <Layout title="Create Your Own Practice">
@@ -152,7 +187,7 @@ export default function SelfAssign() {
                       {group.chapters.map((ch) => (
                         <button key={ch.id} onClick={() => selectChapter(ch.id)}
                           className={`text-left p-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                            selectedChapter === ch.id
+                            selectedChapters.has(ch.id)
                               ? 'border-primary-500 bg-primary-50 text-primary-700'
                               : 'border-gray-100 hover:border-gray-200 text-gray-700'}`}>
                           Ch. {ch.chapter_number}: {ch.title}
@@ -168,14 +203,14 @@ export default function SelfAssign() {
       </div>
 
       {/* Step 2: Questions */}
-      {selectedChapter && (
+      {selectedChapters.size > 0 && (
         <div className="card mb-4">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="font-semibold text-gray-700">2. Choose Questions ({selectedIds.size} selected)</h2>
-              {selectedChapterObj && (
+              {selectedChaptersArr.length > 0 && (
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {selectedChapterObj.textbook_title} · Ch. {selectedChapterObj.chapter_number}
+                  {selectedChaptersArr.map((c) => `Ch. ${c.chapter_number}: ${c.title}`).join('  ·  ')}
                 </p>
               )}
             </div>
@@ -186,11 +221,13 @@ export default function SelfAssign() {
             </div>
           </div>
 
-          {/* Fix 1 + 2: Generate with count selector — now works for child role */}
           <div className="bg-amber-50 rounded-xl p-3 mb-3 flex flex-wrap items-center gap-2">
             <Wand2 size={16} className="text-amber-600 shrink-0" />
-            <span className="text-sm text-amber-700 font-medium">Generate questions:</span>
-            {/* Fix 2: count dropdown */}
+            <span className="text-sm text-amber-700 font-medium">Generate questions
+              {lastClickedChapter && selectedChapters.size > 1 && (
+                <span className="font-normal text-amber-600"> (for last-selected chapter)</span>
+              )}:
+            </span>
             <select className="text-sm border-0 bg-white rounded-lg px-2 py-1 shadow-sm"
               value={genCount} onChange={(e) => setGenCount(+e.target.value)}>
               {[3, 5, 8, 10, 15].map(n => <option key={n} value={n}>{n} questions</option>)}
@@ -201,6 +238,22 @@ export default function SelfAssign() {
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
             </select>
+            {difficultyRec?.has_data && (
+              <div className="w-full mt-2 space-y-1">
+                {difficultyRec.reason && (
+                  <p className="text-xs text-teal-700">
+                    {difficultyRec.recommended_difficulty === 'easy' ? '🟢' :
+                     difficultyRec.recommended_difficulty === 'medium' ? '🟡' : '🔴'}
+                    {' '}{difficultyRec.reason}
+                  </p>
+                )}
+                {(difficultyRec.cautions ?? []).map((c: string, i: number) => (
+                  <p key={i} className="text-xs text-amber-600 flex items-start gap-1">
+                    <span>⚠️</span>{c}
+                  </p>
+                ))}
+              </div>
+            )}
             <button onClick={generateMore} disabled={generating}
               className="bg-amber-500 text-white text-sm px-3 py-1.5 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1">
               {generating ? (
@@ -212,30 +265,46 @@ export default function SelfAssign() {
           {loadingEx ? <LoadingSpinner text="Loading questions..." /> : exercises.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-6">No questions yet. Generate some above!</p>
           ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {exercises.map((ex) => (
-                <div key={ex.id} onClick={() => toggle(ex.id)}
-                  className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${
-                    selectedIds.has(ex.id) ? 'border-primary-400 bg-primary-50' : 'border-transparent bg-gray-50 hover:bg-gray-100'}`}>
-                  <div className="mt-0.5 shrink-0 text-primary-500">
-                    {selectedIds.has(ex.id) ? <CheckSquare size={18} /> : <Square size={18} className="text-gray-300" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-800 line-clamp-2">{ex.prompt}</p>
-                    <div className="flex gap-2 mt-1">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${DIFF_COLOR[ex.difficulty]}`}>{ex.difficulty}</span>
-                      <span className="text-xs text-gray-400">{ex.source === 'ai_generated' ? '✨ AI' : '📖 Textbook'}</span>
+            <div className="space-y-4 max-h-72 overflow-y-auto pr-1">
+              {/* Group by chapter when multiple selected */}
+              {selectedChaptersArr.map((ch) => {
+                const chExercises = exercises.filter((ex) => exerciseChapterMap[ex.id] === ch.id)
+                if (chExercises.length === 0) return null
+                return (
+                  <div key={ch.id}>
+                    {selectedChapters.size > 1 && (
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 sticky top-0 bg-white py-1">
+                        Ch. {ch.chapter_number}: {ch.title}
+                      </p>
+                    )}
+                    <div className="space-y-2">
+                      {chExercises.map((ex) => (
+                        <div key={ex.id} onClick={() => toggle(ex.id)}
+                          className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${
+                            selectedIds.has(ex.id) ? 'border-primary-400 bg-primary-50' : 'border-transparent bg-gray-50 hover:bg-gray-100'}`}>
+                          <div className="mt-0.5 shrink-0 text-primary-500">
+                            {selectedIds.has(ex.id) ? <CheckSquare size={18} /> : <Square size={18} className="text-gray-300" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 line-clamp-2">{ex.prompt}</p>
+                            <div className="flex gap-2 mt-1">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${DIFF_COLOR[ex.difficulty]}`}>{ex.difficulty}</span>
+                              <span className="text-xs text-gray-400">{ex.source === 'ai_generated' ? '✨ AI' : '📖 Textbook'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
       )}
 
       {/* Step 3: Create */}
-      {selectedChapter && selectedIds.size > 0 && (
+      {selectedChapters.size > 0 && selectedIds.size > 0 && (
         <div className="card">
           <h2 className="font-semibold text-gray-700 mb-3">3. Name & Start</h2>
           <input className="input-field mb-3" value={title}

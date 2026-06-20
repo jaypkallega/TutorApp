@@ -48,6 +48,8 @@ def get_evaluation_for_submission(
                     "prompt": ex.prompt,
                     "difficulty": ex.difficulty,
                     "exercise_type": ex.exercise_type,
+                    "visual_data": ex.visual_data,  # Include for MCQ rendering
+                    "visual_type": ex.visual_type,
                 }
 
     enriched = []
@@ -57,6 +59,8 @@ def get_evaluation_for_submission(
             **qr,
             "question_prompt": ex_info.get("prompt", ""),
             "difficulty": ex_info.get("difficulty", ""),
+            "visual_data": ex_info.get("visual_data"),  # For MCQ option rendering
+            "visual_type": ex_info.get("visual_type"),
         })
 
     return {

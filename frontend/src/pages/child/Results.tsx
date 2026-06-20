@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import api from '../../api/client'
 import { CheckCircle2, XCircle, AlertCircle, RotateCcw, Home, AlertTriangle, Info } from 'lucide-react'
+import VisualDisplay from '../../components/VisualDisplay'
 
 interface Misconception { topic: string; diagnosis: string; remedy: string }
 
@@ -15,6 +16,8 @@ interface QuestionResult {
   confidence: number; method: string
   requires_parent_review: boolean
   misconceptions: Misconception[]
+  hints_used?: number
+  visual_data?: any; visual_type?: string
 }
 
 interface Evaluation {
@@ -37,6 +40,7 @@ const METHOD_LABELS: Record<string, string> = {
   sympy_solve: 'Math engine', sympy_rational: 'Math engine',
   keyword_rubric: 'Keyword check', step_validator: 'Step validator',
   llm_fallback: 'AI assisted', auto_detect: 'Auto detect', skipped: 'Not answered',
+  mcq_exact: 'Multiple choice',
 }
 
 function ScoreCircle({ percent }: { percent: number }) {
@@ -135,6 +139,19 @@ export default function Results() {
         </div>
       </div>
 
+      {/* Difficulty promotion callout — shown when score ≥ 80% */}
+      {isGreat && (
+        <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
+          <span className="text-2xl">🌟</span>
+          <div>
+            <p className="font-semibold text-teal-800 text-sm">You're ready for harder questions!</p>
+            <p className="text-xs text-teal-600 mt-0.5">
+              Next time you create a self-practice session from this chapter, we'll suggest a harder difficulty for you.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Per-question breakdown */}
       <div className="space-y-4 mb-6">
         {per_question.map((qr, i) => {
@@ -146,7 +163,12 @@ export default function Results() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-gray-700 text-sm">Question {i + 1}</span>
-                  {qr.requires_parent_review && <AlertTriangle size={14} className="text-amber-500" title="Parent review needed" />}
+                  {qr.requires_parent_review && <span title="Parent review needed"><AlertTriangle size={14} className="text-amber-500" /></span>}
+                  {(qr.hints_used ?? 0) > 0 && (
+                    <span className="flex items-center gap-0.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                      💡 {qr.hints_used} hint{qr.hints_used !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400" title={`Evaluated by: ${methodLabel}`}>{methodLabel}</span>
@@ -165,17 +187,51 @@ export default function Results() {
               <div className="flex items-start gap-3">
                 {config.icon}
                 <div className="flex-1 space-y-2">
-                  {qr.ocr_text && (
+                  {/* MCQ visual answer display */}
+                  {qr.visual_type === 'mcq_options' && qr.visual_data && (() => {
+                    let mcqData: any = null
+                    try {
+                      mcqData = typeof qr.visual_data === 'string' ? JSON.parse(qr.visual_data) : qr.visual_data
+                    } catch {}
+                    if (mcqData && mcqData.type === 'mcq_options') {
+                      return (
+                        <div className="mb-3">
+                          <VisualDisplay visualData={mcqData} selectedOption={qr.ocr_text || undefined} />
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
+
+                  {/* Text answer for non-MCQ or fallback */}
+                  {qr.ocr_text && qr.visual_type !== 'mcq_options' && (
                     <div className="p-2 bg-white rounded-lg border text-sm text-gray-600">
                       <span className="text-xs text-gray-400 block mb-0.5 font-medium">Your answer:</span>
-                      <span className="font-mono">{qr.ocr_text}</span>
+                      {/* MCQ: render as letter badge; otherwise plain mono text */}
+                      {qr.ocr_text.trim().length === 1 && 'ABCD'.includes(qr.ocr_text.trim().toUpperCase())
+                        ? (
+                          <span className={`inline-flex w-7 h-7 rounded-full items-center justify-center font-bold text-sm
+                            ${qr.status === 'correct' ? 'bg-green-500 text-white' : 'bg-red-400 text-white'}`}>
+                            {qr.ocr_text.trim().toUpperCase()}
+                          </span>
+                        )
+                        : <span className="font-mono">{qr.ocr_text}</span>
+                      }
                     </div>
                   )}
                   {qr.feedback && <p className="text-sm text-gray-600 leading-relaxed">{qr.feedback}</p>}
                   {qr.correct_answer && qr.status !== 'correct' && (
                     <div className="p-2 bg-green-50 rounded-lg border border-green-100 text-sm">
                       <span className="text-xs text-green-600 font-semibold block mb-0.5">Correct answer:</span>
-                      <span className="text-green-800 font-mono">{qr.correct_answer}</span>
+                      {/* MCQ: render as green letter badge */}
+                      {qr.correct_answer.trim().length === 1 && 'ABCD'.includes(qr.correct_answer.trim().toUpperCase())
+                        ? (
+                          <span className="inline-flex w-7 h-7 rounded-full bg-green-500 text-white items-center justify-center font-bold text-sm">
+                            {qr.correct_answer.trim().toUpperCase()}
+                          </span>
+                        )
+                        : <span className="text-green-800 font-mono">{qr.correct_answer}</span>
+                      }
                     </div>
                   )}
 

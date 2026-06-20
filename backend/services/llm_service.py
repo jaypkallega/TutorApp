@@ -167,7 +167,45 @@ Return ONLY valid JSON:
     }
   ]
 }
+
+CRITICAL RULES FOR VISUAL AND GEOMETRY QUESTIONS:
+
+1. NEVER generate "which of the following" or "identify from options" questions that require
+   the student to see labelled diagrams (A, B, C, D) that you cannot embed in the text.
+   These are unrenderable and the student will have nothing to select from.
+   Examples of BANNED question forms:
+   ✗ "Which of the following figures is a net of a cube?"
+   ✗ "Which of the following shapes is a quadrilateral?"
+   ✗ "Identify the correct triangle from options A, B, C, D."
+
+2. For topics involving NETS OF SOLIDS (cube, cuboid, cylinder, cone, pyramid):
+   ✓ DO ask: "Draw two different nets of a cube and label all 6 faces."
+   ✓ DO ask: "How many edges, faces, and vertices does a cuboid have?"
+   ✓ DO ask: "A cube has side 5 cm. Calculate its surface area using the net method."
+   ✓ DO ask: "Explain why a cross-shaped flat figure with 6 equal squares can fold into a cube."
+   ✗ NEVER ask: "Which of the following is a net of a cube?"
+
+3. For topics involving IDENTIFYING SHAPES from options:
+   ✓ DO ask: "Name three properties that make a quadrilateral a parallelogram."
+   ✓ DO ask: "Draw a scalene triangle with angles 40°, 60°, and 80°. Label all sides and angles."
+   ✗ NEVER ask: "Which of the following is a scalene triangle?" (without drawable options)
+
+4. Every exercise must be FULLY ANSWERABLE from the text alone without seeing any diagram
+   options. If a geometry question requires a diagram to set up the problem (e.g., a labelled
+   triangle with measurements), describe the figure completely in words within the prompt.
+
+5. For coordinate geometry, always state the coordinates explicitly:
+   ✓ "Plot points A(2,3), B(-1,4), C(0,-2) on a coordinate plane and find the area of triangle ABC."
+
+EXCEPTION — Visual MCQ with proper option rendering:
+If the visual extractor can produce an "mcq_options" type with four rendered option cards,
+then multiple-choice questions ARE allowed for nets/solids identification.
+In this case, the LLM will generate visual_data with type="mcq_options" containing 4 options.
+The frontend will render clickable option cards (A, B, C, D) with visual diagrams.
+Example allowed format when mcq_options is supported:
+✓ "Which of these is a valid net of a cube?" — with visual_data containing 4 cube_net options.
 """
+
 
 
 def generate_exercises(
@@ -359,6 +397,11 @@ For multi-step working problems:
 For science/conceptual answers:
 {{"answer_type": "conceptual", "canonical_value": "brief answer", "rubric": {{"required_concepts": [{{"keyword": "photosynthesis", "weight": 2, "synonyms": ["food making"]}}], "optional_concepts": [], "min_required_score": 3, "max_score": 4}}, "sympy_expr": null, "tolerance": null}}
 
+For visual MCQ questions (multiple-choice with visual options A/B/C/D):
+{{"answer_type": "mcq", "correct_option": "A"}}
+— Use this when exercise_type is "visual_mcq" or the question has visual_data.type="mcq_options".
+— Extract correct_option from visual_data.correct_option ("A", "B", "C", or "D").
+
 Rules:
 - sympy_expr must be parseable by Python SymPy (use * for multiplication, ** for power)
 - For equations, sympy_expr is the expression equal to zero (move everything to LHS)
@@ -374,11 +417,24 @@ def generate_structured_answer(
     subject: str = "Mathematics",
     exercise_type: str = "calculation",
     grade: int = 8,
+    visual_data: dict | None = None,  # NEW: for MCQ extraction
 ) -> dict:
     """
     Generate a structured answer schema for deterministic evaluation.
     Called once at exercise creation — never at evaluation time.
+    
+    For visual_mcq exercises, extracts correct_option from visual_data instead of calling LLM.
     """
+    # Handle MCQ type directly from visual_data
+    if exercise_type == "visual_mcq" and visual_data:
+        try:
+            vd = visual_data if isinstance(visual_data, dict) else json.loads(visual_data)
+            if vd.get("type") == "mcq_options":
+                correct_opt = vd.get("correct_option", "A").strip().upper()
+                return {"answer_type": "mcq", "correct_option": correct_opt}
+        except Exception:
+            pass  # Fall through to LLM if parsing fails
+    
     try:
         messages = [
             {
@@ -401,3 +457,65 @@ def generate_structured_answer(
         import logging
         logging.getLogger(__name__).warning(f"Structured answer generation failed: {e}")
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Hint generation (used during SolveWorkspace — Socratic, never gives answer)
+# ---------------------------------------------------------------------------
+
+HINT_PROMPT = """\
+You are a patient, encouraging Grade 8 tutor helping a student who is stuck.
+The student has asked for hint #{hint_number} of 3 for this question.
+
+QUESTION: {question}
+EXPECTED ANSWER (do NOT reveal this): {expected_answer}
+STUDENT'S CURRENT ATTEMPT (may be empty): {current_answer}
+
+STRICT RULES — never break these:
+1. NEVER give the answer, any part of the answer, or a formula that directly solves it.
+2. Give EXACTLY ONE guiding nudge — one question or one observation. Not two.
+3. Maximum 2 sentences total. Short is better.
+4. Hint 1 → point the student toward the right concept, method, or formula name only.
+   Hint 2 → describe the very first step they should take, phrased as a question.
+   Hint 3 → if the student has a current attempt, identify the specific part that is wrong;
+             if no attempt, give a tiny concrete example using different numbers.
+5. Use friendly, encouraging language suitable for a 13-year-old.
+6. Do NOT start with "Hint:" or a number. Just the nudge itself.
+"""
+
+
+def generate_hint(
+    db: Session,
+    question_prompt: str,
+    expected_answer: str,
+    hint_number: int,
+    current_answer: str = "",
+) -> str:
+    """
+    Generate a Socratic hint for a student who is stuck on a question.
+    hint_number: 1, 2, or 3 — controls the specificity of the hint.
+    Never reveals the answer — enforced by the prompt.
+    """
+    prompt = (
+        HINT_PROMPT
+        .replace("{hint_number}", str(hint_number))
+        .replace("{question}", question_prompt)
+        .replace("{expected_answer}", expected_answer or "(not specified)")
+        .replace("{current_answer}", current_answer.strip() if current_answer else "(no attempt yet)")
+    )
+    try:
+        return call_llm(
+            db,
+            [{"role": "user", "content": prompt}],
+            max_tokens=120,
+            temperature=0.4,
+        ).strip()
+    except Exception as e:
+        logger.warning(f"Hint generation failed: {e}")
+        # Fallback hints that never give the answer
+        fallbacks = [
+            "Think about which formula or concept from this chapter applies here.",
+            "What is the very first operation you need to do? Write just that step first.",
+            "Check your working carefully — does each step follow logically from the one before?",
+        ]
+        return fallbacks[min(hint_number - 1, 2)]

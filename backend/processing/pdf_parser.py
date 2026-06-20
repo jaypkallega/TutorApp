@@ -1,14 +1,63 @@
 """
 PDF Parser — converts a textbook PDF into images and extracted text,
 then sends to LLM for structured chapter/concept/exercise extraction.
+
+Background processing is SERIALISED via a module-level queue so that
+only one textbook is written to the SQLite database at a time, avoiding
+"database is locked" errors when multiple files are uploaded together.
 """
 
 import json
 import logging
+import queue
+import threading
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Single-worker processing queue
+# ---------------------------------------------------------------------------
+# Each item is a tuple: (textbook_id, pdf_path, page_images_dir)
+_processing_queue: queue.Queue = queue.Queue()
+
+
+def _worker() -> None:
+    """Daemon thread: drains the queue, running one job at a time."""
+    from backend.database import SessionLocal
+    while True:
+        textbook_id, pdf_path, page_images_dir = _processing_queue.get()
+        logger.info(
+            f"[queue] Starting textbook {textbook_id} "
+            f"({_processing_queue.qsize()} remaining in queue)"
+        )
+        session = SessionLocal()
+        try:
+            process_textbook(session, textbook_id, pdf_path, page_images_dir)
+        except Exception as e:
+            logger.error(f"[queue] Unhandled error for textbook {textbook_id}: {e}", exc_info=True)
+        finally:
+            session.close()
+            _processing_queue.task_done()
+            logger.info(f"[queue] Finished textbook {textbook_id}")
+
+
+# Start the single daemon worker once at import time.
+_worker_thread = threading.Thread(target=_worker, daemon=True, name="textbook-processor")
+_worker_thread.start()
+
+
+def enqueue_textbook(textbook_id: int, pdf_path: str, page_images_dir: str) -> None:
+    """
+    Public API: add a textbook processing job to the serial queue.
+    Returns immediately; the job runs in the background worker thread.
+    """
+    _processing_queue.put((textbook_id, pdf_path, page_images_dir))
+    logger.info(
+        f"[queue] Enqueued textbook {textbook_id} "
+        f"(queue depth now {_processing_queue.qsize()})"
+    )
 
 
 def pdf_to_page_images(pdf_path: str, output_dir: str, dpi: int = 150) -> list[str]:
@@ -74,17 +123,16 @@ def process_textbook(
 ) -> None:
     """
     Full pipeline: PDF → images → text → LLM analysis → save to DB.
-    Runs as a background task. Updates textbook.status during processing.
+    Must NOT be called concurrently — always call via enqueue_textbook().
+    The db session is owned by the caller (_worker above); do not close it here.
     """
     from backend.models.textbook import Textbook
     from backend.models.chapter import Chapter
     from backend.models.concept import Concept
     from backend.models.exercise import Exercise
     from backend.services.llm_service import analyze_textbook_structure
-    from backend.database import SessionLocal
 
-    # Use a fresh DB session for background task
-    session = SessionLocal()
+    session = db  # use the session passed in from the worker
 
     def update_status(status: str, log: str = ""):
         tb = session.query(Textbook).filter(Textbook.id == textbook_id).first()
@@ -125,7 +173,11 @@ def process_textbook(
         for start in range(0, len(page_texts), chunk_size):
             chunk = page_texts[start:start + chunk_size]
             try:
-                result = analyze_textbook_structure(session, chunk, subject=tb.subject if tb else "Mathematics", grade=tb.grade if tb else 8)
+                result = analyze_textbook_structure(
+                    session, chunk,
+                    subject=tb.subject if tb else "Mathematics",
+                    grade=tb.grade if tb else 8,
+                )
                 chapters = result.get("chapters", [])
                 # Adjust page numbers for chunk offset
                 for ch in chapters:
@@ -137,7 +189,6 @@ def process_textbook(
 
         if not all_chapters:
             update_status("error", "AI analysis returned no chapters. Check API key and model.")
-            session.close()
             return
 
         update_status("processing", f"Saving {len(all_chapters)} chapters to database...")
@@ -193,5 +244,3 @@ def process_textbook(
     except Exception as e:
         logger.error(f"Textbook processing failed: {e}", exc_info=True)
         update_status("error", f"Processing failed: {str(e)}")
-    finally:
-        session.close()

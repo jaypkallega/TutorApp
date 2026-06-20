@@ -85,6 +85,7 @@ def _draft_summary(draft: SubmissionDraft, db: Session) -> dict:
                 "saved_at": ans.get("saved_at"),
                 "text_preview": (ans.get("text") or "")[:80] if ans.get("mode") == "text" else None,
                 "has_image": bool(ans.get("image_path")),
+                "hints_used": ans.get("hints_used", 0),
             }
             for ex_id, ans in answers.items()
         },
@@ -147,6 +148,89 @@ def get_draft(
     if not draft:
         raise HTTPException(404, "Draft not found")
     return _draft_summary(draft, db)
+
+
+# ---------------------------------------------------------------------------
+# Hint endpoint
+# ---------------------------------------------------------------------------
+
+class HintRequest(BaseModel):
+    exercise_id: int
+    current_answer: str = ""
+
+
+MAX_HINTS_PER_QUESTION = 3
+
+
+@router.post("/{draft_id}/hint")
+def get_hint(
+    draft_id: int,
+    req: HintRequest,
+    current_user: User = Depends(require_child),
+    db: Session = Depends(get_db),
+):
+    """
+    Return a Socratic hint for one question (max 3 per question).
+    Hint count is stored in the draft answers JSON and persists across page refreshes.
+    """
+    from backend.services.llm_service import generate_hint
+    from backend.models.exercise import Exercise
+
+    draft = db.query(SubmissionDraft).filter(
+        SubmissionDraft.id == draft_id,
+        SubmissionDraft.child_id == current_user.id,
+        SubmissionDraft.status == "in_progress",
+    ).first()
+    if not draft:
+        raise HTTPException(404, "Draft not found or already submitted")
+
+    # Verify exercise belongs to this assignment
+    from backend.models.assignment import AssignmentQuestion
+    aq = db.query(AssignmentQuestion).filter(
+        AssignmentQuestion.assignment_id == draft.assignment_id,
+        AssignmentQuestion.exercise_id == req.exercise_id,
+    ).first()
+    if not aq:
+        raise HTTPException(404, "Exercise not part of this assignment")
+
+    exercise = db.query(Exercise).filter(Exercise.id == req.exercise_id).first()
+    if not exercise:
+        raise HTTPException(404, "Exercise not found")
+
+    # Load hint count for this question
+    answers = _load_answers(draft)
+    ex_key = str(req.exercise_id)
+    ex_entry = answers.get(ex_key, {})
+    hints_used = ex_entry.get("hints_used", 0)
+
+    if hints_used >= MAX_HINTS_PER_QUESTION:
+        raise HTTPException(
+            429,
+            f"You've used all {MAX_HINTS_PER_QUESTION} hints for this question."
+        )
+
+    hint_number = hints_used + 1
+    hint_text = generate_hint(
+        db=db,
+        question_prompt=exercise.prompt,
+        expected_answer=exercise.expected_answer or "",
+        hint_number=hint_number,
+        current_answer=req.current_answer,
+    )
+
+    # Persist updated hint count (create entry if not yet answered)
+    ex_entry["hints_used"] = hint_number
+    if "mode" not in ex_entry:
+        # Preserve existing answer data if present, just add hints_used
+        pass
+    answers[ex_key] = ex_entry
+    _save_answers(draft, answers, db)
+
+    return {
+        "hint": hint_text,
+        "hints_used": hint_number,
+        "hints_remaining": MAX_HINTS_PER_QUESTION - hint_number,
+    }
 
 
 @router.put("/{draft_id}/text")
@@ -340,9 +424,9 @@ def submit_draft(
     db.commit()
     db.refresh(submission)
 
-    # Trigger evaluation
+    # Trigger evaluation (pass raw answers so hints_used flows into per_question results)
     background_tasks.add_task(
-        process_submission, db, submission.id, exercises, assignment.show_wrong_reasons
+        process_submission, db, submission.id, exercises, assignment.show_wrong_reasons, answers
     )
 
     return {"submission_id": submission.id, "status": "processing"}
