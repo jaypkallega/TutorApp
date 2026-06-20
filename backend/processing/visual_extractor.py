@@ -61,93 +61,117 @@ Use this when the question involves plotting points, drawing shapes on a grid, o
 Notes:
   - Set x_min/x_max/y_min/y_max to fit all points with a small margin.
   - polygon_points: list of [x,y] forming a closed shape — use null if no polygon.
-  - segments: line segments to draw — use [] if none.
-  - points: labelled points — use [] if none.
+  - segments: line segments to draw — use [] ━━ GEOMETRIC FIGURE — provide MATHEMATICAL PARAMETERS, not pixel coordinates ━━
+A Python geometry engine will compute exact SVG coordinates from your spec.
+Provide side lengths (numbers), angles in degrees (numbers), named dimensions.
 
-━━ GEOMETRIC FIGURE — single shape with measurements ━━
-Always provide actual vertex coordinates in a 0–200 (x) by 0–160 (y) bounding box.
-
-Triangle ABC with AB=5cm, BC=7cm, angle B=60°:
+Triangle ABC, AB=5 cm, BC=7 cm, ∠B=60° (SAS):
 {{"has_visual": true, "type": "geometry", "shape": "triangle",
-  "description": "Triangle ABC with AB=5 cm, BC=7 cm, angle B=60°",
-  "vertices": {{"A": [0, 86], "B": [0, 0], "C": [100, 0]}},
-  "angles": {{"A": null, "B": "60°", "C": null}},
-  "circle_data": null, "net_cells": null, "cell_labels": {{}},
-  "measurements": [{{"label": "AB", "value": "5 cm", "type": "side"}},
-                   {{"label": "BC", "value": "7 cm", "type": "side"}},
-                   {{"label": "∠B", "value": "60°", "type": "angle"}}]}}
+  "description": "Triangle ABC, AB=5 cm, BC=7 cm, ∠B=60°",
+  "spec": {{"given": "SAS", "sides": {{"AB": 5, "BC": 7}}, "angles": {{"B": 60}},
+           "unit": "cm", "vertex_names": ["A", "B", "C"]}},
+  "measurements": [{{"label": "AB", "value": "5 cm"}}, {{"label": "BC", "value": "7 cm"}},
+                   {{"label": "∠B", "value": "60°"}}]}}
 
-Right-angled triangle with legs 3cm, 4cm:
+Right-angled triangle, legs AB=3 cm, BC=4 cm:
 {{"has_visual": true, "type": "geometry", "shape": "right_triangle",
   "description": "Right-angled triangle with legs 3 cm and 4 cm",
-  "vertices": {{"A": [0, 75], "B": [0, 0], "C": [100, 0]}},
-  "angles": {{"A": null, "B": "90°", "C": null}},
-  "circle_data": null, "net_cells": null, "cell_labels": {{}},
-  "measurements": [{{"label": "AB", "value": "3 cm", "type": "side"}},
-                   {{"label": "BC", "value": "4 cm", "type": "side"}}]}}
+  "spec": {{"right_angle_at": "B", "legs": {{"AB": 3, "BC": 4}},
+           "unit": "cm", "vertex_names": ["A", "B", "C"]}},
+  "measurements": [{{"label": "AB", "value": "3 cm"}}, {{"label": "BC", "value": "4 cm"}}]}}
 
-Rectangle 8cm × 5cm:
+Rectangle 8 cm × 5 cm:
 {{"has_visual": true, "type": "geometry", "shape": "rectangle",
-  "description": "Rectangle 8 cm by 5 cm",
-  "vertices": {{"A": [0, 62], "B": [0, 0], "C": [100, 0], "D": [100, 62]}},
-  "angles": {{}}, "circle_data": null, "net_cells": null, "cell_labels": {{}},
-  "measurements": [{{"label": "length", "value": "8 cm", "type": "side"}},
-                   {{"label": "width", "value": "5 cm", "type": "side"}}]}}
+  "description": "Rectangle 8 cm × 5 cm",
+  "spec": {{"length": 8, "width": 5, "unit": "cm"}},
+  "measurements": [{{"label": "length", "value": "8 cm"}}, {{"label": "width", "value": "5 cm"}}]}}
 
-Circle with radius 7cm:
+Circle, radius 7 cm:
 {{"has_visual": true, "type": "geometry", "shape": "circle",
   "description": "Circle with radius 7 cm",
-  "vertices": null, "angles": {{}}, "net_cells": null, "cell_labels": {{}},
-  "circle_data": {{"cx": 100, "cy": 100, "radius": 70,
-                  "radius_label": "7 cm", "diameter_label": null}},
-  "measurements": [{{"label": "radius", "value": "7 cm", "type": "radius"}}]}}
+  "spec": {{"radius": 7, "unit": "cm"}},
+  "measurements": [{{"label": "radius", "value": "7 cm"}}]}}
 
-Angle of 120°:
+Angle AOB = 120°:
 {{"has_visual": true, "type": "geometry", "shape": "angle",
-  "description": "Angle of 120°",
-  "vertices": {{"O": [50, 80], "A": [0, 80], "B": [100, 20]}},
-  "angles": {{"O": "120°"}},
-  "circle_data": null, "net_cells": null, "cell_labels": {{}},
-  "measurements": [{{"label": "∠AOB", "value": "120°", "type": "angle"}}]}}
+  "description": "Angle AOB = 120°",
+  "spec": {{"vertex": "O", "arm1": "A", "arm2": "B", "degrees": 120,
+           "arm_length": 3, "unit": "cm"}},
+  "measurements": [{{"label": "∠AOB", "value": "120°"}}]}}
 
-━━ COMPOUND / L-SHAPED / T-SHAPED POLYGON ━━
-For irregular rectilinear figures, use "polygon" shape with 6+ vertices listed in ORDER:
-L-shaped figure (6 cm × 8 cm with a 2 cm × 3 cm notch cut from top-right):
+L-shaped figure (6 cm × 8 cm total, with a 2 cm × 3 cm notch cut from top-right):
 {{"has_visual": true, "type": "geometry", "shape": "polygon",
   "description": "L-shaped figure",
-  "vertices": {{"A": [0, 0], "B": [120, 0], "C": [120, 60],
-               "D": [60, 60], "E": [60, 130], "F": [0, 130]}},
-  "angles": {{}}, "circle_data": null, "net_cells": null, "cell_labels": {{}},
-  "measurements": [{{"label": "AB", "value": "6 cm", "type": "side"}},
-                   {{"label": "AF", "value": "8 cm", "type": "side"}}]}}
+  "spec": {{"outline": [
+    {{"dir": "right", "len": 6}}, {{"dir": "down", "len": 3}},
+    {{"dir": "left",  "len": 2}}, {{"dir": "down", "len": 5}},
+    {{"dir": "left",  "len": 4}}, {{"dir": "up",   "len": 8}}
+  ], "unit": "cm"}},
+  "measurements": [{{"label": "AB", "value": "6 cm"}}, {{"label": "FA", "value": "8 cm"}}]}}
+Note: outline steps trace the perimeter clockwise; the last step must close back to the start.
+Label only the measurements explicitly given in the problem.
 
-━━ CUBE NET (unfolded cube showing 6 connected square faces) ━━
-Use this when the question involves drawing, constructing, or examining a net of a cube/solid.
+Cylinder, radius 7 cm, height 10 cm:
+{{"has_visual": true, "type": "geometry", "shape": "cylinder",
+  "description": "Cylinder, radius 7 cm, height 10 cm",
+  "spec": {{"radius": 7, "height": 10, "unit": "cm"}},
+  "measurements": [{{"label": "radius", "value": "7 cm"}}, {{"label": "height", "value": "10 cm"}}]}}
+
+Cone, base radius 5 cm, height 12 cm:
+{{"has_visual": true, "type": "geometry", "shape": "cone",
+  "description": "Cone, base radius 5 cm, height 12 cm",
+  "spec": {{"base_radius": 5, "height": 12, "unit": "cm"}},
+  "measurements": [{{"label": "radius", "value": "5 cm"}}, {{"label": "height", "value": "12 cm"}}]}}
+
+Cuboid 8 cm × 5 cm × 6 cm:
+{{"has_visual": true, "type": "geometry", "shape": "cuboid",
+  "description": "Cuboid 8 cm × 5 cm × 6 cm",
+  "spec": {{"length": 8, "width": 5, "height": 6, "unit": "cm"}},
+  "measurements": [{{"label": "length", "value": "8 cm"}},
+                   {{"label": "width",  "value": "5 cm"}},
+                   {{"label": "height", "value": "6 cm"}}]}}
+
+━━ CUBE NET — unfolded cube/cuboid ━━
+Use when the question involves nets of solids.
 {{"has_visual": true, "type": "geometry", "shape": "cube_net",
   "description": "Net of a cube — cross shape with 6 square faces",
-  "vertices": null, "angles": {{}}, "circle_data": null,
-  "net_cells": [[0, 1], [1, 0], [1, 1], [1, 2], [1, 3], [2, 1]],
-  "cell_labels": {{"0,1": "top", "1,0": "left", "1,1": "front",
-                  "1,2": "right", "1,3": "back", "2,1": "bottom"}},
+  "spec": {{"net_cells": [[0,1],[1,0],[1,1],[1,2],[1,3],[2,1]],
+           "cell_labels": {{"0,1": "top", "1,1": "front", "2,1": "bottom"}}}},
   "measurements": []}}
-Notes on net_cells:
-  - Each [row, col] pair identifies one square in a 2-D grid.
-  - The cross-shaped net above is the most common. Other valid 6-cell arrangements also work.
-  - For a cuboid net, use the same format but cells may form an elongated cross.
-  - If you cannot determine the exact net shape, use the standard cross above.
 
-RULES:
+━━ MCQ OPTIONS — four visual choices for multiple-choice questions ━━
+Use this when each option (A, B, C, D) is a distinct visual diagram.
+Example — "Which is a valid net of a cube?":
+{{"has_visual": true, "type": "mcq_options",
+  "options": [
+    {{"label": "A", "visual": {{"type": "geometry", "shape": "cube_net",
+      "spec": {{"net_cells": [[0,1],[1,0],[1,1],[1,2],[1,3],[2,1]]}}, "description": "Cross net"}}}},
+    {{"label": "B", "visual": {{"type": "geometry", "shape": "cube_net",
+      "spec": {{"net_cells": [[0,0],[0,1],[1,1],[2,1],[3,1],[3,2]]}}, "description": "S-shaped"}}}},
+    {{"label": "C", "visual": {{"type": "geometry", "shape": "cube_net",
+      "spec": {{"net_cells": [[0,0],[1,0],[1,1],[1,2],[2,2],[3,2]]}}, "description": "L-shaped"}}}},
+    {{"label": "D", "visual": {{"type": "geometry", "shape": "cube_net",
+      "spec": {{"net_cells": [[0,1],[1,0],[1,1],[1,2],[2,1],[2,2]]}}, "description": "Staircase"}}}}
+  ],
+  "correct_option": "A"
+}}
+RULES for mcq_options:
+- Always 4 options labelled A–D. Set correct_option to the right letter.
+- Each option visual can be any valid type (geometry, axes, table …).
+- Use ONLY for genuine multiple-choice questions with visual options.
+
+GENERAL RULES:
 - Always include the "description" field as a plain-English fallback.
-- If coordinates cannot be determined, set "vertices": null (frontend falls back to description).
-- Use "axes" type (not "geometry") whenever the question involves a coordinate grid.
+- Use "axes" type (not "geometry") for coordinate-grid / plotting questions.
 - Use "cube_net" shape (not "page_image") whenever a net of a solid is needed.
-
-For anything else you cannot reconstruct into the schemas above:
-{{"has_visual": true, "type": "page_image", "description": "brief description of what the visual shows"}}
+- For geometry shapes: always provide "spec" — do NOT provide raw pixel "vertices".
+- For shapes not covered above, use:
+  {{"has_visual": true, "type": "page_image", "description": "brief description"}}
 
 Return ONLY valid JSON. No explanation.
 Exercise text: {exercise_text}
 """
+
 
 
 def _normalise_vertices(vertices: dict) -> dict:
@@ -179,6 +203,51 @@ def _normalise_vertices(vertices: dict) -> dict:
 
 # Shapes that use their own coordinate system — do NOT run vertex normalisation
 _SKIP_NORMALISE_SHAPES = {"cube_net"}
+
+
+def _skip_mcq_normalise(vis: dict) -> bool:
+    """Check if this is an mcq_options visual — skip normalisation for all sub-visuals."""
+    return vis.get("type") == "mcq_options"
+
+def _apply_geometry_engine(result: dict) -> dict:
+    """
+    Post-process the LLM visual response:
+    - If a "spec" key is present, call the geometry engine for exact coordinates.
+    - If only raw "vertices" are present (old format / image extraction fallback),
+      run the existing vertex normaliser.
+    - MCQ options sub-visuals are processed individually.
+    Returns the (possibly updated) result dict.
+    """
+    vtype = result.get("type")
+
+    # Handle mcq_options: process each sub-visual recursively
+    if vtype == "mcq_options":
+        for opt in result.get("options", []):
+            vis = opt.get("visual")
+            if isinstance(vis, dict):
+                opt["visual"] = _apply_geometry_engine(vis)
+        return result
+
+    if vtype != "geometry":
+        return result
+
+    shape = result.get("shape", "")
+    spec  = result.pop("spec", None)   # consume spec — never sent to frontend
+
+    if spec is not None:
+        # New path: compute exact geometry from mathematical parameters
+        from backend.processing.geometry_engine import compute_geometry
+        return compute_geometry(
+            shape,
+            spec,
+            result.get("measurements", []),
+            result.get("description", ""),
+        )
+
+    # Old path: LLM returned raw vertices (image extraction fallback)
+    if result.get("vertices") and shape not in _SKIP_NORMALISE_SHAPES:
+        result["vertices"] = _normalise_vertices(result["vertices"])
+    return result
 
 
 
@@ -244,15 +313,8 @@ def extract_visual_for_exercise(
         if not result.get("has_visual", False):
             return {}
         result.pop("has_visual", None)
-        # Normalise geometry vertex coordinates to fit SVG viewport
-        # Skip shapes that use their own grid coordinate system
-        shape = result.get("shape", "")
-        if (
-            result.get("type") == "geometry"
-            and result.get("vertices")
-            and shape not in _SKIP_NORMALISE_SHAPES
-        ):
-            result["vertices"] = _normalise_vertices(result["vertices"])
+        # Geometry: prefer spec → engine path; fall back to normalise for raw vertices
+        result = _apply_geometry_engine(result)
         return result
 
     except Exception as e:
@@ -279,14 +341,7 @@ def _text_only_visual_detection(db, exercise_prompt: str, subject: str, grade: i
         if not result.get("has_visual", False):
             return {}
         result.pop("has_visual", None)
-        # Normalise vertices for text-only path too
-        shape = result.get("shape", "")
-        if (
-            result.get("type") == "geometry"
-            and result.get("vertices")
-            and shape not in _SKIP_NORMALISE_SHAPES
-        ):
-            result["vertices"] = _normalise_vertices(result["vertices"])
+        result = _apply_geometry_engine(result)
         return result
     except Exception as e:
         logger.warning(f"Text-only visual detection failed: {e}")

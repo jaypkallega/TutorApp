@@ -19,6 +19,17 @@ interface AssignmentQuestion {
 }
 type InputMode = 'canvas' | 'text' | 'photo'
 
+// For MCQ exercises
+interface MCQOption {
+  label: string
+  visual: object
+}
+interface MCQVisualData {
+  type: 'mcq_options'
+  options: MCQOption[]
+  correct_option?: string
+}
+
 interface SavedAnswer {
   mode: InputMode
   saved_at: string
@@ -47,6 +58,9 @@ export default function SolveWorkspace() {
   const [currentQ, setCurrentQ] = useState(0)
   const [loading, setLoading] = useState(true)
   const [inputMode, setInputMode] = useState<InputMode>('canvas')
+  
+  // MCQ-specific state
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
 
   // Draft state
   const [draftId, setDraftId] = useState<number | null>(null)
@@ -113,6 +127,7 @@ export default function SolveWorkspace() {
     setSaveError('')
     setHintText(null)
     setHintError('')
+    setSelectedOption(null)  // Reset MCQ selection
     // Restore text input if previously saved
     if (exId && savedAnswers[String(exId)]?.mode === 'text') {
       setTextInput(savedAnswers[String(exId)].text_preview || '')
@@ -130,7 +145,19 @@ export default function SolveWorkspace() {
     setSaveError('')
 
     try {
-      if (inputMode === 'text') {
+      // Handle MCQ mode
+      if (exercise && (exercise.visual_type === 'mcq_options' || exercise.exercise_type === 'visual_mcq')) {
+        if (!selectedOption) { setSaveError('Please select an option before saving.'); return }
+        const fd = new FormData()
+        fd.append('exercise_id', String(exId))
+        fd.append('text', selectedOption)  // Store letter as text answer
+        await api.put(`/drafts/${draftId}/text`, fd)
+        setSavedAnswers((prev) => ({
+          ...prev,
+          [String(exId)]: { mode: 'text', saved_at: new Date().toISOString(), text_preview: `Option ${selectedOption}` },
+        }))
+        
+      } else if (inputMode === 'text') {
         if (!textInput.trim()) { setSaveError('Please write something before saving.'); return }
         const fd = new FormData()
         fd.append('exercise_id', String(exId))
@@ -370,71 +397,126 @@ export default function SolveWorkspace() {
         </div>
       )}
 
-      {/* Input mode selector */}
-      <div className="flex gap-2 mb-4">
-        {([
-          { mode: 'canvas' as InputMode, icon: <PenLine size={16} />, label: 'Draw' },
-          { mode: 'text' as InputMode, icon: <Type size={16} />, label: 'Type' },
-          { mode: 'photo' as InputMode, icon: <Camera size={16} />, label: 'Photo' },
-        ]).map(({ mode, icon, label }) => (
-          <button key={mode} onClick={() => setInputMode(mode)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-              inputMode === mode ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {icon} {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Answer area */}
-      <div className="mb-4">
-        {inputMode === 'canvas' && (
-          // key resets canvas for each question
-          <StylusCanvas
-            key={`canvas-q${currentQ}`}
-            ref={canvasRef}
-            width={900} height={320} strokeWidth={3}
-          />
-        )}
-
-        {inputMode === 'text' && (
-          <textarea
-            className="input-field resize-none text-base" rows={6}
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Type your answer here. Show your working step by step."
-          />
-        )}
-
-        {inputMode === 'photo' && (
-          <div>
-            <div
-              className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-primary-300 transition-all"
-              onClick={() => fileRef.current?.click()}
-            >
-              {photoName ? (
-                <div>
-                  <div className="text-3xl mb-2">📷</div>
-                  <p className="font-medium text-gray-700">{photoName}</p>
-                  <p className="text-sm text-gray-400 mt-1">Tap to change</p>
-                </div>
-              ) : (
-                <div>
-                  <Camera size={36} className="mx-auto mb-2 text-gray-300" />
-                  <p className="text-gray-500 font-medium">Take a photo or choose from gallery</p>
-                  <p className="text-xs text-gray-400 mt-1">Works with iPad camera & Apple Pencil</p>
-                </div>
-              )}
+      {/* MCQ Option Cards — replaces input mode selector for visual_mcq */}
+      {(exercise.visual_type === 'mcq_options' || exercise.exercise_type === 'visual_mcq') && (() => {
+        let mcqData: MCQVisualData | null = null
+        try {
+          mcqData = exercise.visual_data 
+            ? (typeof exercise.visual_data === 'string' ? JSON.parse(exercise.visual_data) : exercise.visual_data)
+            : null
+        } catch {}
+        
+        if (!mcqData || mcqData.type !== 'mcq_options') return null
+        
+        const isSaved = !!currentSaved
+        return (
+          <div className="mb-4">
+            <p className="text-sm text-gray-500 mb-2">Select the correct option:</p>
+            <div className="grid grid-cols-2 gap-3">
+              {mcqData.options.map((opt, idx) => {
+                const label = opt.label?.toUpperCase() || String.fromCharCode(65 + idx)
+                const isSelected = selectedOption === label
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => !isSaved && setSelectedOption(label)}
+                    disabled={isSaved}
+                    className={`relative p-3 rounded-xl border-2 transition-all text-left ${
+                      isSelected 
+                        ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200' 
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isSaved ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs
+                      ${isSelected ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                      {label}
+                    </div>
+                    <div className="pt-7">
+                      {/* Compact visual — no Figure header inside a small card */}
+                      <VisualDisplay visualData={opt.visual} />
+                    </div>
+                  </button>
+                )
+              })}
             </div>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) { setPhotoFile(f); setPhotoName(f.name) }
-              }}
-            />
+            {isSaved && (
+              <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
+                <CheckCircle2 size={12} /> You selected option {selectedOption}
+              </p>
+            )}
           </div>
-        )}
-      </div>
+        )
+      })()}
+
+      {/* Input mode selector — hidden for MCQ exercises */}
+      {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
+        <div className="flex gap-2 mb-4">
+          {([
+            { mode: 'canvas' as InputMode, icon: <PenLine size={16} />, label: 'Draw' },
+            { mode: 'text' as InputMode, icon: <Type size={16} />, label: 'Type' },
+            { mode: 'photo' as InputMode, icon: <Camera size={16} />, label: 'Photo' },
+          ]).map(({ mode, icon, label }) => (
+            <button key={mode} onClick={() => setInputMode(mode)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                inputMode === mode ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Answer area — hidden for MCQ (handled by option cards above) */}
+      {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
+        <div className="mb-4">
+          {inputMode === 'canvas' && (
+            // key resets canvas for each question
+            <StylusCanvas
+              key={`canvas-q${currentQ}`}
+              ref={canvasRef}
+              width={900} height={320} strokeWidth={3}
+            />
+          )}
+
+          {inputMode === 'text' && (
+            <textarea
+              className="input-field resize-none text-base" rows={6}
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Type your answer here. Show your working step by step."
+            />
+          )}
+
+          {inputMode === 'photo' && (
+            <div>
+              <div
+                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-primary-300 transition-all"
+                onClick={() => fileRef.current?.click()}
+              >
+                {photoName ? (
+                  <div>
+                    <div className="text-3xl mb-2">📷</div>
+                    <p className="font-medium text-gray-700">{photoName}</p>
+                    <p className="text-sm text-gray-400 mt-1">Tap to change</p>
+                  </div>
+                ) : (
+                  <div>
+                    <Camera size={36} className="mx-auto mb-2 text-gray-300" />
+                    <p className="text-gray-500 font-medium">Take a photo or choose from gallery</p>
+                    <p className="text-xs text-gray-400 mt-1">Works with iPad camera & Apple Pencil</p>
+                  </div>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) { setPhotoFile(f); setPhotoName(f.name) }
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Save error */}
       {saveError && (

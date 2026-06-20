@@ -47,6 +47,24 @@ interface GeometryData {
   // cube_net specific
   net_cells?: [number, number][] | null
   cell_labels?: Record<string, string>
+  // 3-D shape outputs from geometry engine
+  cylinder_data?: {
+    cx: number; cy_top: number; cy_bottom: number
+    rx: number; ry: number
+    radius_label?: string | null; height_label?: string | null
+  } | null
+  cone_data?: {
+    cx: number; apex_y: number; base_cy: number
+    rx: number; ry: number
+    radius_label?: string | null; height_label?: string | null; slant_label?: string | null
+  } | null
+  cuboid_data?: {
+    front: [number, number][]
+    top:   [number, number][]
+    right: [number, number][]
+    labels:    { length?: string; width?: string; height?: string }
+    label_pos: { length?: [number, number]; width?: [number, number]; height?: [number, number] }
+  } | null
 }
 
 /** R-C: coordinate plane with points, segments, shaded polygon */
@@ -64,8 +82,19 @@ interface PageImageData {
   type: 'page_image'; page: number; textbook_id: number; description?: string
 }
 
+interface MCQOption {
+  label: string
+  visual: object
+}
+
+interface MCQOptionsData {
+  type: 'mcq_options'
+  options: MCQOption[]
+  correct_option?: string
+}
+
 type VisualData = TableData | NumberLineData | BarGraphData | PieChartData
-                | GeometryData | AxesData | PageImageData
+                | GeometryData | AxesData | PageImageData | MCQOptionsData
 
 // ── Shared colours ───────────────────────────────────────────────────────────
 const GEO_STROKE  = '#1e3a5f'
@@ -350,6 +379,108 @@ function CubeNetVisual({ data }: { data: GeometryData }) {
   )
 }
 
+// ── CYLINDER (Gap-3) ──────────────────────────────────────────────────────────
+function CylinderVisual({ data }: { data: GeometryData }) {
+  const c = data.cylinder_data!
+  const { cx, cy_top, cy_bottom, rx, ry, radius_label, height_label } = c
+  return (
+    <svg viewBox="0 0 200 160" className="w-full max-w-xs">
+      {/* Body fill between ellipses */}
+      <rect x={cx - rx} y={cy_top} width={2 * rx} height={cy_bottom - cy_top}
+        fill={GEO_FILL} stroke="none" />
+      {/* Bottom ellipse */}
+      <ellipse cx={cx} cy={cy_bottom} rx={rx} ry={ry}
+        fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" />
+      {/* Left and right vertical lines */}
+      <line x1={cx - rx} y1={cy_bottom} x2={cx - rx} y2={cy_top}
+        stroke={GEO_STROKE} strokeWidth="2" />
+      <line x1={cx + rx} y1={cy_bottom} x2={cx + rx} y2={cy_top}
+        stroke={GEO_STROKE} strokeWidth="2" />
+      {/* Top ellipse — drawn last so it covers the body rect edge */}
+      <ellipse cx={cx} cy={cy_top} rx={rx} ry={ry}
+        fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" />
+      {/* Radius line on top face */}
+      {radius_label && <>
+        <line x1={cx} y1={cy_top} x2={cx + rx} y2={cy_top}
+          stroke={GEO_ACCENT} strokeWidth="1.5" strokeDasharray="4 2" />
+        <MeasureLabel x={(cx + cx + rx) / 2} y={cy_top - 12} text={radius_label} />
+      </>}
+      {/* Height indicator on the right side */}
+      {height_label && <>
+        <line x1={cx + rx + 10} y1={cy_top}    x2={cx + rx + 10} y2={cy_bottom}
+          stroke={GEO_ACCENT} strokeWidth="1.5" />
+        <line x1={cx + rx + 6}  y1={cy_top}    x2={cx + rx + 14} y2={cy_top}
+          stroke={GEO_ACCENT} strokeWidth="1.5" />
+        <line x1={cx + rx + 6}  y1={cy_bottom} x2={cx + rx + 14} y2={cy_bottom}
+          stroke={GEO_ACCENT} strokeWidth="1.5" />
+        <MeasureLabel x={cx + rx + 26} y={(cy_top + cy_bottom) / 2} text={height_label} />
+      </>}
+    </svg>
+  )
+}
+
+// ── CONE (Gap-3) ──────────────────────────────────────────────────────────────
+function ConeVisual({ data }: { data: GeometryData }) {
+  const c = data.cone_data!
+  const { cx, apex_y, base_cy, rx, ry, radius_label, height_label, slant_label } = c
+  return (
+    <svg viewBox="0 0 200 160" className="w-full max-w-xs">
+      <ellipse cx={cx} cy={base_cy} rx={rx} ry={ry}
+        fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" />
+      <line x1={cx} y1={apex_y} x2={cx - rx} y2={base_cy}
+        stroke={GEO_STROKE} strokeWidth="2" />
+      <line x1={cx} y1={apex_y} x2={cx + rx} y2={base_cy}
+        stroke={GEO_STROKE} strokeWidth="2" />
+      <circle cx={cx} cy={apex_y} r="3" fill={GEO_STROKE} />
+      {height_label && <>
+        <line x1={cx} y1={apex_y} x2={cx} y2={base_cy}
+          stroke={GEO_ACCENT} strokeWidth="1.5" strokeDasharray="4 2" />
+        <MeasureLabel x={cx + 18} y={(apex_y + base_cy) / 2} text={height_label} />
+      </>}
+      {radius_label && <>
+        <line x1={cx} y1={base_cy} x2={cx + rx} y2={base_cy}
+          stroke={GEO_ACCENT} strokeWidth="1.5" strokeDasharray="4 2" />
+        <MeasureLabel x={(cx + cx + rx) / 2} y={base_cy + 14} text={radius_label} />
+      </>}
+      {slant_label && (
+        <MeasureLabel
+          x={(cx + cx + rx) / 2 + 4}
+          y={(apex_y + base_cy) / 2 - 8}
+          text={slant_label} />
+      )}
+    </svg>
+  )
+}
+
+// ── CUBOID (Gap-3) ─────────────────────────────────────────────────────────────
+function CuboidVisual({ data }: { data: GeometryData }) {
+  const c = data.cuboid_data!
+  const toPoints = (pts: [number, number][]) => pts.map(p => `${p[0]},${p[1]}`).join(' ')
+  const { labels, label_pos } = c
+  return (
+    <svg viewBox="0 0 200 160" className="w-full max-w-xs">
+      {/* Right face — darkest shade */}
+      <polygon points={toPoints(c.right as [number, number][])
+        } fill="#cce8f0" stroke={GEO_STROKE} strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Top face — medium shade */}
+      <polygon points={toPoints(c.top as [number, number][])
+        } fill="#d8eff7" stroke={GEO_STROKE} strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Front face — lightest */}
+      <polygon points={toPoints(c.front as [number, number][])
+        } fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" strokeLinejoin="round" />
+      {labels.length && label_pos.length && (
+        <MeasureLabel x={label_pos.length![0]} y={label_pos.length![1]} text={labels.length} />
+      )}
+      {labels.width && label_pos.width && (
+        <MeasureLabel x={label_pos.width![0]}  y={label_pos.width![1]}  text={labels.width}  />
+      )}
+      {labels.height && label_pos.height && (
+        <MeasureLabel x={label_pos.height![0]} y={label_pos.height![1]} text={labels.height} />
+      )}
+    </svg>
+  )
+}
+
 // ── COORDINATE AXES (R-C) ─────────────────────────────────────────────────────
 function CoordinateAxesVisual({ data }: { data: AxesData }) {
   const W = 280, H = 240, PAD = 38
@@ -475,9 +606,12 @@ function GeometryVisual({ data }: { data: GeometryData }) {
   const V = vertices
 
   // ── CUBE NET ────────────────────────────────────────────────────────────────
-  if (shape === 'cube_net') {
-    return <CubeNetVisual data={data} />
-  }
+  if (shape === 'cube_net') return <CubeNetVisual data={data} />
+
+  // ── 3-D SHAPES ─────────────────────────────────────────────────────────────
+  if (shape === 'cylinder' && data.cylinder_data) return <CylinderVisual data={data} />
+  if (shape === 'cone'     && data.cone_data)     return <ConeVisual     data={data} />
+  if (shape === 'cuboid'   && data.cuboid_data)   return <CuboidVisual   data={data} />
 
   // ── CIRCLE ──────────────────────────────────────────────────────────────────
   if (shape === 'circle' && circle_data) {
@@ -501,7 +635,7 @@ function GeometryVisual({ data }: { data: GeometryData }) {
     )
   }
 
-  // ── POLYGON / TRIANGLE / RECTANGLE / COMPOUND / ANGLE (need vertices) ───────
+  // ── POLYGON / TRIANGLE / RECTANGLE / COMPOUND / ANGLE (vertex-based) ────────
   if (V && Object.keys(V).length >= 2) {
     const keys = Object.keys(V)
     const pts  = keys.map(k => V[k])
@@ -510,54 +644,82 @@ function GeometryVisual({ data }: { data: GeometryData }) {
     const measureMap: Record<string, string> = {}
     ;(measurements || []).forEach(m => { measureMap[m.label] = m.value })
 
+    // Track which measurement labels are attached to a vertex pair.
+    const attachedLabels = new Set<string>()
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i], next = keys[(i + 1) % keys.length]
+      ;(measurements || []).forEach(m => {
+        if (m.label === `${k}${next}` || m.label === `${next}${k}`) {
+          attachedLabels.add(m.label)
+        }
+      })
+    }
+    const unmatched = (measurements || []).filter(m => !attachedLabels.has(m.label)
+      && m.type !== 'angle'
+    )
+
     const rightAngleVertex = shape === 'right_triangle'
       ? (keys.find(k => angles?.[k] === '90°') ?? keys[1])
       : null
 
     return (
-      <svg viewBox="0 0 200 160" className="w-full max-w-xs">
-        <polygon points={polyPoints} fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" strokeLinejoin="round" />
+      <div>
+        <svg viewBox="0 0 200 160" className="w-full max-w-xs">
+          <polygon points={polyPoints} fill={GEO_FILL} stroke={GEO_STROKE} strokeWidth="2" strokeLinejoin="round" />
 
-        {rightAngleVertex && (() => {
-          const idx  = keys.indexOf(rightAngleVertex)
-          const prev = keys[(idx-1+keys.length)%keys.length]
-          const next = keys[(idx+1)%keys.length]
-          return <RightAngleMark B={V[rightAngleVertex]} A={V[prev]} C={V[next]} />
-        })()}
+          {rightAngleVertex && (() => {
+            const idx  = keys.indexOf(rightAngleVertex)
+            const prev = keys[(idx-1+keys.length)%keys.length]
+            const next = keys[(idx+1)%keys.length]
+            return <RightAngleMark B={V[rightAngleVertex]} A={V[prev]} C={V[next]} />
+          })()}
 
-        {keys.map(k => {
-          const [x, y] = V[k]
-          const cxv = pts.reduce((s,p) => s+p[0],0)/pts.length
-          const cyv = pts.reduce((s,p) => s+p[1],0)/pts.length
-          const dx = x-cxv, dy = y-cyv
-          const len = Math.sqrt(dx*dx+dy*dy)||1
-          return (
-            <text key={k} x={x+(dx/len)*12} y={y+(dy/len)*12}
-              textAnchor="middle" dominantBaseline="central"
-              fontSize="11" fontWeight="700" fill={GEO_STROKE}>{k}</text>
-          )
-        })}
+          {keys.map(k => {
+            const [x, y] = V[k]
+            const cxv = pts.reduce((s,p) => s+p[0],0)/pts.length
+            const cyv = pts.reduce((s,p) => s+p[1],0)/pts.length
+            const dx = x-cxv, dy = y-cyv
+            const len = Math.sqrt(dx*dx+dy*dy)||1
+            return (
+              <text key={k} x={x+(dx/len)*12} y={y+(dy/len)*12}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize="11" fontWeight="700" fill={GEO_STROKE}>{k}</text>
+            )
+          })}
 
-        {keys.map((k,i) => {
-          const next = keys[(i+1)%keys.length]
-          const label = measureMap[`${k}${next}`] || measureMap[`${next}${k}`]
-          if (!label) return null
-          const [mx, my] = mid(V[k], V[next])
-          const cxv = pts.reduce((s,p) => s+p[0],0)/pts.length
-          const cyv = pts.reduce((s,p) => s+p[1],0)/pts.length
-          const dx = mx-cxv, dy = my-cyv
-          const len = Math.sqrt(dx*dx+dy*dy)||1
-          return <MeasureLabel key={`${k}${next}`} x={mx+(dx/len)*14} y={my+(dy/len)*14} text={label} />
-        })}
+          {keys.map((k,i) => {
+            const next = keys[(i+1)%keys.length]
+            const label = measureMap[`${k}${next}`] || measureMap[`${next}${k}`]
+            if (!label) return null
+            const [mx, my] = mid(V[k], V[next])
+            const cxv = pts.reduce((s,p) => s+p[0],0)/pts.length
+            const cyv = pts.reduce((s,p) => s+p[1],0)/pts.length
+            const dx = mx-cxv, dy = my-cyv
+            const len = Math.sqrt(dx*dx+dy*dy)||1
+            return <MeasureLabel key={`${k}${next}`} x={mx+(dx/len)*14} y={my+(dy/len)*14} text={label} />
+          })}
 
-        {keys.map((k,i) => {
-          const angleLabel = angles?.[k]
-          if (!angleLabel || angleLabel === '90°') return null
-          const prev = keys[(i-1+keys.length)%keys.length]
-          const next = keys[(i+1)%keys.length]
-          return <AngleArc key={k} O={V[k]} A={V[prev]} B={V[next]} label={angleLabel} />
-        })}
-      </svg>
+          {keys.map((k,i) => {
+            const angleLabel = angles?.[k]
+            if (!angleLabel || angleLabel === '90°') return null
+            const prev = keys[(i-1+keys.length)%keys.length]
+            const next = keys[(i+1)%keys.length]
+            return <AngleArc key={k} O={V[k]} A={V[prev]} B={V[next]} label={angleLabel} />
+          })}
+        </svg>
+
+        {/* Gap 2: show measurements not attached to any vertex pair as chips */}
+        {unmatched.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {unmatched.map((m, i) => (
+              <span key={i}
+                className="bg-white border border-blue-200 text-blue-700 text-xs px-2 py-0.5 rounded-lg font-mono">
+                {m.label} = {m.value}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     )
   }
 
@@ -579,6 +741,46 @@ function GeometryVisual({ data }: { data: GeometryData }) {
   )
 }
 
+// ── MCQ OPTIONS GRID (read-only for Results page) ─────────────────────────────
+interface MCQOptionsVisualProps {
+  data: MCQOptionsData
+  selectedOption?: string  // Student's selected option (for highlighting)
+}
+
+function MCQOptionsVisual({ data, selectedOption }: MCQOptionsVisualProps) {
+  const options = data.options || []
+  const correctOpt = (data.correct_option || '').toUpperCase()
+  
+  return (
+    <div className="grid grid-cols-2 gap-3 my-3">
+      {options.map((opt, idx) => {
+        const label = opt.label?.toUpperCase() || String.fromCharCode(65 + idx)
+        const isCorrect = label === correctOpt
+        const isSelected = selectedOption && label === selectedOption.toUpperCase()
+        
+        let borderColor = 'border-gray-200'
+        if (isSelected && isCorrect) borderColor = 'border-green-500 ring-2 ring-green-200'
+        else if (isSelected && !isCorrect) borderColor = 'border-red-400 ring-2 ring-red-200'
+        else if (isCorrect) borderColor = 'border-green-400'
+        
+        return (
+          <div key={idx} className={`relative rounded-xl border-2 ${borderColor} bg-white overflow-hidden`}>
+            {/* Letter badge */}
+            <div className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm z-10
+              ${isSelected ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+              {label}
+            </div>
+            {/* Visual content */}
+            <div className="pt-9 p-2">
+              <VisualDisplay visualData={opt.visual} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── PAGE IMAGE ───────────────────────────────────────────────────────────────
 function PageImageVisual({ data }: { data: PageImageData }) {
   const src = `/api/v1/textbooks/${data.textbook_id}/page/${data.page}`
@@ -594,9 +796,10 @@ function PageImageVisual({ data }: { data: PageImageData }) {
 interface Props {
   visualData: string | object | null
   visualType?: string | null
+  selectedOption?: string  // For MCQ: student's selected option (Results page)
 }
 
-export default function VisualDisplay({ visualData, visualType }: Props) {
+export default function VisualDisplay({ visualData, visualType, selectedOption }: Props) {
   if (!visualData) return null
 
   let data: VisualData
@@ -607,6 +810,15 @@ export default function VisualDisplay({ visualData, visualType }: Props) {
   }
 
   const type = data.type || visualType
+
+  // Handle mcq_options type specially
+  if (type === 'mcq_options') {
+    return (
+      <div className="my-3">
+        <MCQOptionsVisual data={data as MCQOptionsData} selectedOption={selectedOption} />
+      </div>
+    )
+  }
 
   return (
     <div className="my-3 p-3 bg-gray-50 rounded-xl border border-gray-100">

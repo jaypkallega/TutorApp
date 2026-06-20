@@ -2,7 +2,7 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,6 @@ def list_textbooks(
 
 @router.post("", response_model=TextbookOut)
 async def upload_textbook(
-    background_tasks: BackgroundTasks,
     title: str = Form(...),
     grade: int = Form(default=8),
     subject: str = Form(default="Mathematics"),
@@ -65,13 +64,11 @@ async def upload_textbook(
     db.commit()
     db.refresh(textbook)
 
-    # Start background processing
+    # Enqueue for serial background processing (one at a time — avoids SQLite lock contention)
     if upload_type == "pdf":
-        from backend.processing.pdf_parser import process_textbook
+        from backend.processing.pdf_parser import enqueue_textbook
         page_img_dir = str(PAGE_IMAGES_DIR / f"textbook_{textbook.id}")
-        background_tasks.add_task(
-            process_textbook, db, textbook.id, str(dest_path), page_img_dir
-        )
+        enqueue_textbook(textbook.id, str(dest_path), page_img_dir)
 
     return textbook
 

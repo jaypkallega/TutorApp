@@ -26,8 +26,10 @@ export default function AssignmentBuilder() {
   const { isParent } = useAuthStore()
   const navigate = useNavigate()
   const [chapters, setChapters] = useState<Chapter[]>([])
-  const [selectedChapter, setSelectedChapter] = useState<number | null>(null)
+  const [selectedChapters, setSelectedChapters] = useState<Set<number>>(new Set())
   const [exercises, setExercises] = useState<Exercise[]>([])
+  // Map from exercise id -> chapter id (for grouping in the UI)
+  const [exerciseChapterMap, setExerciseChapterMap] = useState<Record<number, number>>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [loadingExercises, setLoadingExercises] = useState(false)
@@ -37,9 +39,9 @@ export default function AssignmentBuilder() {
   const [assignForm, setAssignForm] = useState({
     title: '', explanation_policy: 'after_attempt', show_wrong_reasons: true,
   })
-  // Fix 2: track which textbook groups are collapsed
   const [collapsedBooks, setCollapsedBooks] = useState<Set<number>>(new Set())
-  // Adaptive difficulty: recommendation for selected chapter
+  // Adaptive difficulty: recommendation for most-recently clicked chapter
+  const [lastClickedChapter, setLastClickedChapter] = useState<number | null>(null)
   const [difficultyRec, setDifficultyRec] = useState<{
     recommended_difficulty: string; has_data: boolean;
     reason: string | null;
@@ -65,28 +67,55 @@ export default function AssignmentBuilder() {
   }, {} as Record<number, { title: string; subject: string; chapters: Chapter[] }>)
 
   const selectChapter = async (id: number) => {
-    setSelectedChapter(id)
-    setSelectedIds(new Set())
+    // Toggle chapter in/out of selection set
+    setSelectedChapters((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+    setLastClickedChapter(id)
     setDifficultyRec(null)
-    setLoadingExercises(true)
-    try {
-      const [exRes, recRes] = await Promise.all([
-        api.get(`/exercises?chapter_id=${id}`),
-        api.get(`/chapters/${id}/difficulty-recommendation`).catch(() => null),
-      ])
-      setExercises(exRes.data)
-      if (recRes) setDifficultyRec(recRes.data)
-    } finally { setLoadingExercises(false) }
+    // Load difficulty rec for this chapter
+    api.get(`/chapters/${id}/difficulty-recommendation`).then((r) => {
+      if (r.data) setDifficultyRec(r.data)
+    }).catch(() => null)
   }
 
+  // Fetch exercises whenever the selected chapters set changes
+  useEffect(() => {
+    if (selectedChapters.size === 0) { setExercises([]); setExerciseChapterMap({}); setSelectedIds(new Set()); return }
+    setLoadingExercises(true)
+    const ids = Array.from(selectedChapters)
+    Promise.all(ids.map((cid) => api.get(`/exercises?chapter_id=${cid}`).then((r) => ({ cid, exs: r.data as Exercise[] }))))
+      .then((results) => {
+        const allExercises: Exercise[] = []
+        const chMap: Record<number, number> = {}
+        for (const { cid, exs } of results) {
+          for (const ex of exs) { allExercises.push(ex); chMap[ex.id] = cid }
+        }
+        setExercises(allExercises)
+        setExerciseChapterMap(chMap)
+        setSelectedIds(new Set())
+      })
+      .finally(() => setLoadingExercises(false))
+  }, [selectedChapters])
+
   const generateMore = async () => {
-    if (!selectedChapter) return
+    if (selectedChapters.size === 0) return
+    // Generate for the last-clicked chapter
+    const chId = lastClickedChapter ?? Array.from(selectedChapters)[0]
     setGenerating(true)
     try {
       const r = await api.post('/exercises/generate', {
-        chapter_id: selectedChapter, count: genForm.count, difficulty: genForm.difficulty,
+        chapter_id: chId, count: genForm.count, difficulty: genForm.difficulty,
       })
-      setExercises((prev) => [...prev, ...r.data])
+      const newExs: Exercise[] = r.data
+      setExercises((prev) => [...prev, ...newExs])
+      setExerciseChapterMap((prev) => {
+        const next = { ...prev }
+        for (const ex of newExs) next[ex.id] = chId
+        return next
+      })
     } catch (e: any) {
       alert(e.response?.data?.detail || 'Generation failed. Check LLM settings.')
     } finally { setGenerating(false) }
@@ -98,11 +127,13 @@ export default function AssignmentBuilder() {
 
   const createAssignment = async () => {
     if (selectedIds.size === 0) { alert('Select at least one question'); return }
-    if (!selectedChapter) return
+    if (selectedChapters.size === 0) return
+    // Use the first selected chapter as the primary chapter_id for the assignment
+    const primaryChapterId = lastClickedChapter ?? Array.from(selectedChapters)[0]
     setSaving(true)
     try {
       await api.post('/assignments', {
-        chapter_id: selectedChapter,
+        chapter_id: primaryChapterId,
         title: assignForm.title || undefined,
         exercise_ids: Array.from(selectedIds),
         explanation_policy: assignForm.explanation_policy,
@@ -120,7 +151,9 @@ export default function AssignmentBuilder() {
 
   if (loading) return <Layout title="New Assignment"><LoadingSpinner /></Layout>
 
-  const selectedChapterObj = chapters.find(c => c.id === selectedChapter)
+  const selectedChaptersArr = Array.from(selectedChapters)
+    .map((id) => chapters.find((c) => c.id === id))
+    .filter(Boolean) as Chapter[]
 
   return (
     <Layout title="New Assignment">
@@ -164,13 +197,13 @@ export default function AssignmentBuilder() {
                               key={ch.id}
                               onClick={() => selectChapter(ch.id)}
                               className={`text-left p-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                                selectedChapter === ch.id
+                                selectedChapters.has(ch.id)
                                   ? 'border-primary-500 bg-primary-50 text-primary-700'
                                   : 'border-gray-100 hover:border-gray-200 text-gray-700'
                               }`}
                             >
                               <span>Ch. {ch.chapter_number}: {ch.title}</span>
-                              {selectedChapter === ch.id && difficultyRec?.has_data && difficultyRec.recommended_difficulty !== 'easy' && (
+                              {selectedChapters.has(ch.id) && difficultyRec?.has_data && lastClickedChapter === ch.id && difficultyRec.recommended_difficulty !== 'easy' && (
                                 <span className="ml-1.5 text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full font-medium">
                                   ⬆️ {difficultyRec.recommended_difficulty} ready
                                 </span>
@@ -187,7 +220,7 @@ export default function AssignmentBuilder() {
           </div>
 
           {/* Adaptive difficulty recommendation panel */}
-          {selectedChapter && difficultyRec?.has_data && (
+          {selectedChapters.size > 0 && difficultyRec?.has_data && (
             <div className="card bg-teal-50 border border-teal-100 p-4 mb-0">
               <div className="flex items-start gap-3">
                 <span className="text-xl shrink-0">📊</span>
@@ -213,14 +246,14 @@ export default function AssignmentBuilder() {
           )}
 
           {/* Step 2: Questions */}
-          {selectedChapter && (
+          {selectedChapters.size > 0 && (
             <div className="card">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h2 className="font-semibold text-gray-800">2. Pick Questions ({selectedIds.size} selected)</h2>
-                  {selectedChapterObj && (
+                  {selectedChaptersArr.length > 0 && (
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {selectedChapterObj.textbook_title} · Ch. {selectedChapterObj.chapter_number}: {selectedChapterObj.title}
+                      {selectedChaptersArr.map((c) => `Ch. ${c.chapter_number}: ${c.title}`).join('  ·  ')}
                     </p>
                   )}
                 </div>
@@ -231,10 +264,14 @@ export default function AssignmentBuilder() {
                 </div>
               </div>
 
-              {/* Generate */}
+              {/* Generate — targets last-clicked chapter */}
               <div className="bg-amber-50 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
                 <Wand2 size={16} className="text-amber-600" />
-                <span className="text-sm text-amber-700 font-medium">Generate AI questions:</span>
+                <span className="text-sm text-amber-700 font-medium">Generate AI questions
+                  {lastClickedChapter && selectedChapters.size > 1 && (
+                    <span className="font-normal text-amber-600"> (for last-selected chapter)</span>
+                  )}:
+                </span>
                 <select className="text-sm border-0 bg-white rounded-lg px-2 py-1" value={genForm.count}
                   onChange={(e) => setGenForm({ ...genForm, count: +e.target.value })}>
                   {[3, 5, 8, 10].map(n => <option key={n} value={n}>{n}</option>)}
@@ -251,26 +288,42 @@ export default function AssignmentBuilder() {
                 </button>
               </div>
 
-              {loadingExercises ? <LoadingSpinner text="Loading questions..." /> : exercises.length === 0 ? (
+              {loadingExercises ? <LoadingSpinner text="Loading questions…" /> : exercises.length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-6">No questions yet. Generate some above.</p>
               ) : (
-                <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                  {exercises.map((ex) => (
-                    <div key={ex.id} onClick={() => toggleSelect(ex.id)}
-                      className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${
-                        selectedIds.has(ex.id) ? 'border-primary-400 bg-primary-50' : 'border-transparent bg-gray-50 hover:bg-gray-100'}`}>
-                      <div className="mt-0.5 text-primary-500 shrink-0">
-                        {selectedIds.has(ex.id) ? <CheckSquare size={18} /> : <Square size={18} className="text-gray-300" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-800 line-clamp-2">{ex.prompt}</p>
-                        <div className="flex gap-2 mt-1">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${DIFF_COLOR[ex.difficulty]}`}>{ex.difficulty}</span>
-                          <span className="text-xs text-gray-400">{ex.source === 'ai_generated' ? '✨ AI' : '📖 Textbook'}</span>
+                <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                  {/* Group questions by chapter */}
+                  {selectedChaptersArr.map((ch) => {
+                    const chExercises = exercises.filter((ex) => exerciseChapterMap[ex.id] === ch.id)
+                    if (chExercises.length === 0) return null
+                    return (
+                      <div key={ch.id}>
+                        {selectedChapters.size > 1 && (
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 sticky top-0 bg-white py-1">
+                            Ch. {ch.chapter_number}: {ch.title}
+                          </p>
+                        )}
+                        <div className="space-y-2">
+                          {chExercises.map((ex) => (
+                            <div key={ex.id} onClick={() => toggleSelect(ex.id)}
+                              className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${
+                                selectedIds.has(ex.id) ? 'border-primary-400 bg-primary-50' : 'border-transparent bg-gray-50 hover:bg-gray-100'}`}>
+                              <div className="mt-0.5 text-primary-500 shrink-0">
+                                {selectedIds.has(ex.id) ? <CheckSquare size={18} /> : <Square size={18} className="text-gray-300" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-gray-800 line-clamp-2">{ex.prompt}</p>
+                                <div className="flex gap-2 mt-1">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${DIFF_COLOR[ex.difficulty]}`}>{ex.difficulty}</span>
+                                  <span className="text-xs text-gray-400">{ex.source === 'ai_generated' ? '✨ AI' : '📖 Textbook'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
