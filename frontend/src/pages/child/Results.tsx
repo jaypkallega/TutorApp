@@ -204,7 +204,7 @@ export default function Results() {
                   })()}
 
                   {/* Text answer for non-MCQ or fallback */}
-                  {qr.ocr_text && (
+                  {qr.ocr_text && qr.visual_type !== 'mcq_options' && (
                     <div className="p-2 bg-white rounded-lg border text-sm text-gray-600">
                       <span className="text-xs text-gray-400 block mb-0.5 font-medium">Your answer:</span>
                       {/* MCQ: render as letter badge; otherwise plain mono text */}

@@ -465,6 +465,69 @@ export default function SolveWorkspace() {
         </div>
       )}
 
+      {/* Answer area */}
+      <div className="mb-4">
+        {inputMode === 'canvas' && (
+          // key resets canvas for each question
+          <StylusCanvas
+            key={`canvas-q${currentQ}`}
+            ref={canvasRef}
+            width={900} height={320} strokeWidth={3}
+          />
+        )}
+
+        {inputMode === 'text' && (
+          <textarea
+            className="input-field resize-none text-base" rows={6}
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type your answer here. Show your working step by step."
+          />
+        )}
+
+        {inputMode === 'photo' && (
+          <div>
+            <div
+              className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-primary-300 transition-all"
+              onClick={() => fileRef.current?.click()}
+            >
+              {photoName ? (
+                <div>
+                  <div className="text-3xl mb-2">📷</div>
+                  <p className="font-medium text-gray-700">{photoName}</p>
+                  <p className="text-sm text-gray-400 mt-1">Tap to change</p>
+                </div>
+              ) : (
+                <div>
+                  <Camera size={36} className="mx-auto mb-2 text-gray-300" />
+                  <p className="text-gray-500 font-medium">Take a photo or choose from gallery</p>
+                  <p className="text-xs text-gray-400 mt-1">Works with iPad camera & Apple Pencil</p>
+                </div>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) { setPhotoFile(f); setPhotoName(f.name) } }} />
+          </div>
+        )}
+      </div>
+
+      {/* Input mode selector — hidden for MCQ exercises */}
+      {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
+        <div className="flex gap-2 mb-4">
+          {([
+            { mode: 'canvas' as InputMode, icon: <PenLine size={16} />, label: 'Draw' },
+            { mode: 'text' as InputMode, icon: <Type size={16} />, label: 'Type' },
+            { mode: 'photo' as InputMode, icon: <Camera size={16} />, label: 'Photo' },
+          ]).map(({ mode, icon, label }) => (
+            <button key={mode} onClick={() => setInputMode(mode)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                inputMode === mode ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Answer area — hidden for MCQ (handled by option cards above) */}
       {(exercise.visual_type !== 'mcq_options' && exercise.exercise_type !== 'visual_mcq') && (
         <div className="mb-4">

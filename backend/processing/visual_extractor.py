@@ -140,6 +140,7 @@ Use when the question involves nets of solids.
   "measurements": []}}
 
 ━━ MCQ OPTIONS — four visual choices for multiple-choice questions ━━
+<<<<<<< HEAD
 Use this when each option (A, B, C, D) is a distinct visual diagram.
 Example — "Which is a valid net of a cube?":
 {{"has_visual": true, "type": "mcq_options",
@@ -161,6 +162,30 @@ RULES for mcq_options:
 - Use ONLY for genuine multiple-choice questions with visual options.
 
 GENERAL RULES:
+=======
+Use this when the exercise is a multiple-choice question where each option (A, B, C, D) is a visual diagram.
+The "options" array contains 4 items, each with a "label" (A-D) and a "visual" sub-object.
+The "correct_option" field indicates which label is correct.
+Example for "Which of these is a net of a cube?":
+{{"has_visual": true, "type": "mcq_options",
+  "options": [
+    {{"label": "A", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,1],[1,0],[1,1],[1,2],[1,3],[2,1]], "description": "Cross-shaped net"}}}},
+    {{"label": "B", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,0],[0,1],[1,1],[2,1],[3,1],[3,2]], "description": "S-shaped (invalid)"}}}},
+    {{"label": "C", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,0],[1,0],[1,1],[1,2],[2,2],[3,2]], "description": "L-shaped net"}}}},
+    {{"label": "D", "visual": {{"type": "geometry", "shape": "cube_net", "net_cells": [[0,1],[1,0],[1,1],[1,2],[2,1],[2,2]], "description": "Staircase (invalid)"}}}}
+  ],
+  "correct_option": "A"
+}}
+Each option's visual can be any valid visual type (geometry, axes, table, etc.).
+The frontend will render each option's visual in a 2x2 grid with clickable cards.
+RULES:
+- Always include exactly 4 options with labels "A", "B", "C", "D".
+- Set "correct_option" to the letter of the correct answer.
+- Each option's "visual" field should be a complete visual schema (e.g., full geometry object).
+- Use this type ONLY for genuine multiple-choice questions with visual options.
+
+RULES:
+>>>>>>> 359b692189cc0251ec00fcb16cc0624559bca48c
 - Always include the "description" field as a plain-English fallback.
 - Use "axes" type (not "geometry") for coordinate-grid / plotting questions.
 - Use "cube_net" shape (not "page_image") whenever a net of a solid is needed.
@@ -209,6 +234,7 @@ def _skip_mcq_normalise(vis: dict) -> bool:
     """Check if this is an mcq_options visual — skip normalisation for all sub-visuals."""
     return vis.get("type") == "mcq_options"
 
+<<<<<<< HEAD
 def _apply_geometry_engine(result: dict) -> dict:
     """
     Post-process the LLM visual response:
@@ -249,6 +275,8 @@ def _apply_geometry_engine(result: dict) -> dict:
         result["vertices"] = _normalise_vertices(result["vertices"])
     return result
 
+=======
+>>>>>>> 359b692189cc0251ec00fcb16cc0624559bca48c
 
 
 def extract_visual_for_exercise(
@@ -313,8 +341,23 @@ def extract_visual_for_exercise(
         if not result.get("has_visual", False):
             return {}
         result.pop("has_visual", None)
+<<<<<<< HEAD
         # Geometry: prefer spec → engine path; fall back to normalise for raw vertices
         result = _apply_geometry_engine(result)
+=======
+        # Normalise geometry vertex coordinates to fit SVG viewport
+        # Skip shapes that use their own grid coordinate system
+        shape = result.get("shape", "")
+        if (
+            result.get("type") == "geometry"
+            and result.get("vertices")
+            and shape not in _SKIP_NORMALISE_SHAPES
+        ):
+            result["vertices"] = _normalise_vertices(result["vertices"])
+        # For mcq_options, skip normalisation for all sub-visuals
+        if _skip_mcq_normalise(result):
+            pass  # No normalisation needed — sub-visuals have their own coords
+>>>>>>> 359b692189cc0251ec00fcb16cc0624559bca48c
         return result
 
     except Exception as e:
