@@ -1,4 +1,3 @@
-```
 # Dependencies
 __pycache__/
 *.pyc
@@ -61,4 +60,19 @@ yarn-error.log*
 *.gz
 *.rar
 *.7z
-```
+
+# ── Runtime data — never commit ────────────────────────────────────────────────
+# SQLite database (changes on every request)
+data/mathtutor.db
+data/mathtutor.db-shm
+data/mathtutor.db-wal
+
+# Uploaded textbook PDFs (large binary files)
+data/textbooks/
+
+# Page images rendered from PDFs (auto-generated, large)
+data/page_images/
+
+# Any other file in data/ not explicitly tracked
+# (remove the two lines above and uncomment this to exclude everything)
+# data/
